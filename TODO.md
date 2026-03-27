@@ -1,0 +1,11 @@
+- (2h)investigar si es realmente posible con los ultimos cambios de la api de spotify lo siguiente:
+  - obtener referencias de las musicas (musica id/name/artist name) q existen en todos los playlists del usuario y de los 'liked' musics
+  - crear playlists
+  - agregar musicas en los playlists
+- (10m)compartir repo en github
+- (1h)relevamiento de necesidades funcionales, definicion de producto - responde al "que hacemos"
+  - ordenar por (idioma, estilo/genero, anho de lanzamiento del original)
+- (2h)arquitectura y disenho de software - responde al "como lo hacemos"
+- (1h)disenho de UI usando claude code y pencil
+- (3d)vibecodear todo ATM (a toda mierda)
+- publicar en linode
