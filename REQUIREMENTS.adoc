@@ -2,8 +2,8 @@
 
 == Splitify
 
-*Versión:* 1.0
-*Fecha:* 2026-03-27
+*Versión:* 1.1
+*Fecha:* 2026-03-30
 *Autor:* Barri
 
 '''
@@ -16,9 +16,9 @@ Este documento describe los requerimientos funcionales y no funcionales del sist
 
 === 1.2 Alcance
 
-Splitify es una aplicación web construida con Spring Boot que se integra con la API de Spotify (OAuth) y la API de ChatGPT. Permite a los usuarios seleccionar playlists existentes (incluyendo Liked Songs) y generar nuevas playlists organizadas según criterios de idioma, género y/o época.
+Splitify es una aplicación web que se integra con la API de Spotify (OAuth) y la API de ChatGPT. Permite a los usuarios seleccionar playlists existentes (incluyendo Liked Songs) y generar nuevas playlists organizadas según criterios de idioma, género y/o época.
 
-=== 1.3 De finiciones y Acrónimos
+=== 1.3 Definiciones y Acrónimos
 
 |===
 |Término |Definición 
@@ -70,12 +70,12 @@ Usuarios de Spotify que desean organizar automáticamente sus bibliotecas musica
 |13 |Chino (mandarín)
 |14 |Árabe
 |15 |Indonesio
-|15 |Sin letra
+|16 |Sin letra
 |===
 
 ____
 
-Las canciones que no pertenezcan a ninguno de estos idiomas, y no exceden 5 canciones, se agruparán en una playlist llamada *"Other Languages"*, pero si se encuentran mas de 5 canciones en ese idiomas, se le creara una nueva, por ejemplo, si el usuario tiene mas de 5 canciones en Tailandes, aunque no esta incluido en las opciones, se le creara su playlist propia.
+Las canciones cuyo idioma no figure entre los soportados se agruparán en una playlist denominada *"Other Languages"*. Sin embargo, si se detectan más de 5 canciones en un mismo idioma no soportado, el sistema creará una playlist individual para dicho idioma. Por ejemplo, si el usuario posee más de 5 canciones en tailandés, se generará una playlist exclusiva para ese idioma.
 
 ____
 
@@ -98,7 +98,7 @@ ____
 
 ____
 
-La clasificación de género se realiza mediante prompts a la API de ChatGPT, que mapea los +2500 subgéneros existentes a estas 10 categorías principales.
+La clasificación de género se realiza mediante consultas a la API de ChatGPT, que mapea los subgéneros existentes a estas 10 categorías principales.
 
 ____
 
@@ -115,11 +115,11 @@ Las canciones se clasifican por década según su año original de lanzamiento (
 |===
 |Campo |Descripción |Fuente 
 
-|`id` |Identificador único de la canción |Spotify API 
-|`name` |Nombre de la canción |Spotify API 
-|`artist` |Nombre del artista |Spotify API 
-|`releaseYear` |Año original de lanzamiento |Spotify API 
-|`genre` |Género principal (de los 10 definidos) |ChatGPT API 
+|ID |Identificador único de la canción |Spotify API
+|Nombre |Nombre de la canción |Spotify API
+|Artista |Nombre del artista |Spotify API
+|Año de lanzamiento |Año original de lanzamiento |Spotify API
+|Género |Género principal (de los 10 definidos) |ChatGPT API
 |===
 
 '''
@@ -137,15 +137,41 @@ Las canciones se clasifican por década según su año original de lanzamiento (
 
 '''
 
-=== RF2 — Visualización de Playlists
+=== RF2 — Visualización y Organización de Playlists
 
-*Descripción:* El sistema obtendrá y mostrará todas las playlists del usuario (incluyendo Liked Songs) en la página principal, en la parte superior mostrara las playlists ya creadas por el usuario en spotify, y la parte inferior, las creadas con Splitify. El usuario puede entrar en cada playlist(ya existente creada en Spotify por el usuario o creada con Splitify) para ver las canciones con su información. Las playlists creadas con Splitify tienen la opcion de poder ser eliminadas, y actualizarse al ultimo contenido(en el caso de que las playlists que se usaron para crear esa nueva playlist, se le hayan agregado mas opciones)
+*Descripción:* El sistema obtendrá y mostrará todas las playlists del usuario (incluyendo Liked Songs) en la página principal, organizadas en dos secciones:
+
+* *Sección superior — Playlists del usuario:* playlists creadas por el usuario en Spotify. Cada playlist cuenta con una casilla de selección que permite marcarla como origen para la generación de nuevas playlists (RF4–RF7). Se incluye un botón *"Seleccionar todas"* para marcar o desmarcar todas las playlists de esta sección simultáneamente.
+* *Sección inferior — Playlists de Splitify:* playlists generadas previamente por el sistema. Cada playlist dispone de:
+** Un botón *"Eliminar"* para eliminarla de la cuenta de Spotify del usuario.
+** Un botón *"Actualizar"* para sincronizar su contenido con las playlists origen actuales (incorporando canciones añadidas recientemente a las playlists base).
+** Una casilla de selección para operaciones en lote.
+
+El usuario puede acceder a cualquier playlist (de usuario o de Splitify) para consultar las canciones con su información detallada.
 
 *Criterios de aceptación:*
-- Se muestran todas las playlists del usuario en la página principal.
-- La playlist de Liked Songs se incluye en la lista.
-- Al seleccionar una playlist, se muestran las canciones con su información (nombre, artista, año, género).
-- Las playlist creadas con Splitify tienen la opcion de "Eliminar" y "Actualizar".
+- Se muestran todas las playlists del usuario en la sección superior de la página principal.
+- La playlist de Liked Songs se incluye en la sección de playlists del usuario.
+- Las playlists generadas por Splitify se muestran en la sección inferior, separadas visualmente de las del usuario.
+- Cada playlist del usuario cuenta con una casilla de selección y existe un botón "Seleccionar todas".
+- Al acceder a una playlist, se muestran las canciones con su información (nombre, artista, año, género).
+- Cada playlist de Splitify dispone de los botones "Eliminar" y "Actualizar".
+
+'''
+
+=== RF2.1 — Gestión en Lote de Playlists de Splitify
+
+*Descripción:* El sistema permitirá al usuario realizar operaciones en lote sobre las playlists generadas por Splitify. El usuario podrá seleccionar múltiples playlists de Splitify mediante casillas de selección individuales o mediante un botón *"Seleccionar todas"*. Una vez realizada la selección, dispondrá de dos acciones:
+
+* *"Eliminar seleccionadas":* elimina de la cuenta de Spotify del usuario todas las playlists de Splitify seleccionadas.
+* *"Actualizar seleccionadas":* sincroniza el contenido de todas las playlists de Splitify seleccionadas con las playlists origen actuales.
+
+*Criterios de aceptación:*
+- Cada playlist de Splitify cuenta con una casilla de selección individual.
+- Existe un botón "Seleccionar todas" que marca o desmarca todas las playlists de Splitify.
+- El botón "Eliminar seleccionadas" elimina únicamente las playlists de Splitify marcadas.
+- El botón "Actualizar seleccionadas" sincroniza únicamente las playlists de Splitify marcadas.
+- Los botones de acción en lote se habilitan solo cuando hay al menos una playlist seleccionada.
 
 '''
 
@@ -164,10 +190,10 @@ Las canciones se clasifican por década según su año original de lanzamiento (
 *Descripción:* El usuario podrá crear nuevas playlists filtrando canciones por idioma.
 
 *Flujo:*
-1. El usuario selecciona una o más playlists origen (incluyendo Liked Songs).
-2. El sistema crea las nuevas playlists en Spotify, creara tantas playlists como idiomas soportados existan en tus musicas(son 15 y 16 incluyendo "Sin letra").
-3. En el caso de que haya musicas de idiomas no soportados, a menos que no excedan las 5 canciones(donde se les creara igualmente una nueva playlist individual), se pondran en una playlist llamada "Other languages"
-4. Las musicas estaran ordenadas en las playlists por fecha original de lanzamiento
+1. El usuario selecciona una o más playlists origen (incluyendo Liked Songs) desde la sección superior de la página principal.
+2. El sistema genera una playlist por cada idioma detectado entre las canciones de las playlists seleccionadas (hasta 16 idiomas soportados, incluyendo "Sin letra").
+3. Las canciones en idiomas no soportados se agrupan en una playlist denominada "Other Languages", salvo que existan más de 5 canciones en un mismo idioma no soportado, en cuyo caso se generará una playlist individual para dicho idioma.
+4. Las canciones dentro de cada playlist se ordenan por fecha original de lanzamiento (ascendente).
 
 *Nomenclatura de playlists creadas:*
 `Splitify {Idioma} Songs` (ej: `Splitify Español Songs`, `Splitify Inglés Songs`)
@@ -179,9 +205,9 @@ Las canciones se clasifican por década según su año original de lanzamiento (
 *Descripción:* El usuario podrá crear nuevas playlists filtrando canciones por género musical.
 
 *Flujo:*
-1. El usuario selecciona una o más playlists origen (incluyendo Liked Songs).
-2. El sistema crea las nuevas playlists en Spotify, creara tantas playlists como generos soportados existan en tus musicas(son 10).
-3. Las musicas estaran ordenadas en las playlists por fecha original de lanzamiento
+1. El usuario selecciona una o más playlists origen (incluyendo Liked Songs) desde la sección superior de la página principal.
+2. El sistema genera una playlist por cada género detectado entre las canciones de las playlists seleccionadas (hasta 10 géneros definidos).
+3. Las canciones dentro de cada playlist se ordenan por fecha original de lanzamiento (ascendente).
 
 *Nomenclatura de playlists creadas:*
 `Splitify {Género} Songs` (ej: `Splitify Rock Songs`)
@@ -190,14 +216,31 @@ Las canciones se clasifican por década según su año original de lanzamiento (
 
 === RF6 — Ordenar por Época/Década
 
-*Descripción:* El usuario podrá crear una nueva playlist incluyendo absolutamente todas las musicas de las playlist que selecciono, y ordenarlas en una sola por orden de lanzamiento original.
+*Descripción:* El usuario podrá generar una única playlist que contenga todas las canciones de las playlists seleccionadas, ordenadas por fecha original de lanzamiento.
 
 *Flujo:*
-1. El usuario selecciona una o más playlists origen (incluyendo Liked Songs).
-2. El sistema crea la nueva playlist en Spotify.
+1. El usuario selecciona una o más playlists origen (incluyendo Liked Songs) desde la sección superior de la página principal.
+2. El sistema genera una única playlist en Spotify con todas las canciones, ordenadas por fecha de lanzamiento (ascendente).
 
 *Nomenclatura de playlists creadas:*
-`Splitify Songs By Release Date (Playlists included: {Playlists})` (ej: `Splitify Songs By Release Date (Playlists included: Liked Songs, Rock Classics})`)
+`Splitify Songs By Release Date (Playlists included: {Playlists})` (ej: `Splitify Songs By Release Date (Playlists included: Liked Songs, Rock Classics)`)
+
+'''
+
+=== RF6.1 — Creación Combinada de Playlists Genéricas
+
+*Descripción:* El sistema permitirá al usuario seleccionar múltiples tipos de ordenamiento genérico (por idioma, por género y/o por época) de forma simultánea y ejecutar la creación de todas las playlists resultantes con un único botón *"Crear playlists"*.
+
+*Flujo:*
+1. El usuario selecciona una o más playlists origen desde la sección superior de la página principal.
+2. El usuario marca uno o más tipos de ordenamiento genérico: por idioma (RF4), por género (RF5) y/o por época (RF6).
+3. El usuario presiona el botón "Crear playlists".
+4. El sistema genera todas las playlists correspondientes a los tipos de ordenamiento seleccionados.
+
+*Criterios de aceptación:*
+- El usuario puede seleccionar cualquier combinación de los tres tipos de ordenamiento genérico.
+- Al presionar "Crear playlists", se ejecutan todos los tipos seleccionados en una sola operación.
+- Se generan las playlists según las reglas definidas en RF4, RF5 y RF6 respectivamente.
 
 '''
 
@@ -206,7 +249,7 @@ Las canciones se clasifican por década según su año original de lanzamiento (
 *Descripción:* El usuario podrá crear una nueva playlist combinando filtros de idioma, género y época simultáneamente.
 
 *Flujo:*
-1. El usuario selecciona una o más playlists origen (incluyendo Liked Songs).
+1. El usuario selecciona una o más playlists origen (incluyendo Liked Songs) desde la sección superior de la página principal.
 2. Selecciona idioma(s), género(s) y época(s).
 3. El usuario escribe el nombre que desea para la playlist.
 4. El sistema crea una única playlist con las canciones que cumplan todos los criterios.
@@ -222,8 +265,10 @@ Las canciones se clasifican por década según su año original de lanzamiento (
 |# |Regla 
 
 |RN1 |Todas las playlists creadas por el sistema estarán ordenadas por fecha de lanzamiento de las canciones (ascendente). 
-|RN2 |Las canciones cuyo idioma no coincida con ninguno de los 16 soportados se agrupan en "Other Languages" cuando se filtra por idioma (a menos de que existan mas de 5 canciones con ese idioma no soportado, cuyo caso igualmente se le creara una nueva playlist individual).
-|RN3 |La clasificación de género se delega a ChatGPT API, mapeando cualquier subgénero a las 10 categorías principales. 
+|RN2 |Las canciones cuyo idioma no coincida con ninguno de los 16 soportados se agrupan en "Other Languages" cuando se filtra por idioma. Si se detectan más de 5 canciones en un mismo idioma no soportado, se generará una playlist individual para dicho idioma.
+|RN3 |La clasificación de género se delega a ChatGPT API, mapeando cualquier subgénero a las 10 categorías principales.
+|RN4 |La creación de playlists genéricas (RF4, RF5, RF6) siempre producirá al menos una playlist, dado que toda canción pertenece a un idioma, un género y una fecha de lanzamiento.
+|RN5 |La creación de playlists personalizadas (RF7) puede no generar ninguna playlist si ninguna canción cumple con todos los filtros seleccionados. En ese caso, el sistema notificará al usuario mediante un mensaje de error indicando que no se encontraron canciones que coincidan con los criterios especificados.
 |===
 
 '''
@@ -246,5 +291,6 @@ Las canciones se clasifican por década según su año original de lanzamiento (
 |===
 |Fecha |Versión |Descripción 
 
-|2026-03-27 |1.0 |Versión inicial del documento 
+|2026-03-27 |1.0 |Versión inicial del documento
+|2026-03-30 |1.1 |Formalización del lenguaje. Adición de RF2.1 (gestión en lote), RF6.1 (creación combinada de genéricas), RN4 y RN5 (comportamiento ante resultados vacíos). Detalle de la organización de la página principal y mecanismos de selección.
 |===
