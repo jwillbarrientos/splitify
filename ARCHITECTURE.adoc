@@ -1,0 +1,395 @@
+= Documento de Arquitectura de Software
+
+== Splitify
+
+*Versión:* 1.0
+*Fecha:* 2026-03-30
+*Autor:* Barri
+
+'''
+
+== 1. Introducción
+
+=== 1.1 Propósito
+
+Este documento describe las decisiones arquitectónicas, la estructura del proyecto, los componentes del sistema y los flujos de integración de *Splitify*. Complementa el documento de requerimientos (REQUIREMENTS.adoc) definiendo *cómo* se implementan los requerimientos especificados.
+
+=== 1.2 Alcance
+
+Cubre la arquitectura del backend (Spring Boot), el frontend (React SPA), la integración entre ambos, las integraciones con APIs externas (Spotify, ChatGPT) y la estrategia de persistencia y despliegue.
+
+'''
+
+== 2. Visión General de la Arquitectura
+
+Splitify sigue una arquitectura *cliente-servidor* con separación clara entre frontend y backend:
+
+* *Frontend:* Single Page Application (SPA) desarrollada con React, TypeScript y Vite. Se comunica con el backend exclusivamente mediante una API REST.
+* *Backend:* API REST desarrollada con Spring Boot (Java 25). Gestiona la lógica de negocio, la autenticación, la persistencia y la comunicación con APIs externas.
+* *APIs externas:* Spotify Web API (autenticación, lectura/escritura de playlists) y ChatGPT API (clasificación de género musical).
+
+____
+
+[source]
+----
+┌─────────────────────────────────────────────────────────────┐
+│                        Cliente (Browser)                    │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │              React SPA (Vite + TypeScript)            │  │
+│  │  Páginas: Login │ Principal │ Detalle │ Crear Playlist│  │
+│  └──────────────────────┬────────────────────────────────┘  │
+└─────────────────────────┼───────────────────────────────────┘
+                          │ HTTP (REST /api/**)
+┌─────────────────────────┼───────────────────────────────────┐
+│                   Spring Boot Backend                       │
+│  ┌──────────────────────▼────────────────────────────────┐  │
+│  │                  Controllers (REST)                   │  │
+│  ├───────────────────────────────────────────────────────┤  │
+│  │                    Services                           │  │
+│  │  PlaylistService │ ClassificationService │ SpotifyService│
+│  ├───────────────────────────────────────────────────────┤  │
+│  │                  Repositories (JPA)                   │  │
+│  └──────────┬──────────────────┬─────────────────────────┘  │
+│             │                  │                             │
+│        ┌────▼────┐    ┌───────▼────────┐                    │
+│        │   BD    │    │  APIs Externas  │                    │
+│        │ (H2/PG) │    │ Spotify│ChatGPT │                    │
+│        └─────────┘    └────────────────┘                    │
+└─────────────────────────────────────────────────────────────┘
+----
+
+____
+
+'''
+
+== 3. Stack Tecnológico
+
+|===
+|Capa |Tecnología |Justificación
+
+|Frontend |React 19 + TypeScript |Ecosistema maduro para SPAs, tipado estático, amplia comunidad
+|Bundler |Vite |Hot Module Replacement rápido, build optimizado, proxy de desarrollo integrado
+|Backend |Spring Boot 4.0.4 (Java 25) |Framework estándar del ecosistema Java, integración nativa con OAuth2 y JPA
+|Persistencia |Spring Data JPA |Abstracción sobre JPA para acceso a datos
+|Base de datos |H2 (desarrollo) / PostgreSQL (producción) |H2 para desarrollo local sin configuración; PostgreSQL para producción
+|Autenticación |Spring Security + OAuth 2.0 |Integración directa con Spotify OAuth
+|Build |Gradle (Kotlin DSL) + plugin Node |Build unificado: Gradle orquesta tanto el backend como el frontend
+|Despliegue |Linode |Servidor de despliegue objetivo (según requerimientos)
+|===
+
+'''
+
+== 4. Estructura del Proyecto
+
+[source]
+----
+splitify/
+├── build.gradle.kts
+├── settings.gradle.kts
+├── frontend/                          ← Proyecto React (Vite)
+│   ├── package.json
+│   ├── tsconfig.json
+│   ├── vite.config.ts
+│   ├── index.html
+│   └── src/
+│       ├── main.tsx                   ← Punto de entrada React
+│       ├── App.tsx                    ← Router principal
+│       ├── pages/                     ← Páginas/vistas
+│       │   ├── LoginPage.tsx
+│       │   ├── MainPage.tsx
+│       │   ├── PlaylistDetailPage.tsx
+│       │   └── CreatePlaylistPage.tsx
+│       ├── components/                ← Componentes reutilizables
+│       └── services/                  ← Clientes HTTP para la API
+│           └── api.ts
+├── src/main/
+│   ├── java/io/jona/smusic/sorted_music/
+│   │   ├── SortedMusicApplication.java
+│   │   ├── config/                    ← Configuración (Security, Web, APIs)
+│   │   │   ├── SecurityConfig.java
+│   │   │   └── SpaController.java
+│   │   ├── controller/                ← REST Controllers
+│   │   │   ├── AuthController.java
+│   │   │   └── PlaylistController.java
+│   │   ├── service/                   ← Lógica de negocio
+│   │   │   ├── SpotifyService.java
+│   │   │   ├── ClassificationService.java
+│   │   │   └── PlaylistService.java
+│   │   ├── model/                     ← Entidades JPA
+│   │   │   ├── Song.java
+│   │   │   └── SplitifyPlaylist.java
+│   │   ├── dto/                       ← Objetos de transferencia
+│   │   └── repository/               ← Repositorios JPA
+│   │       ├── SongRepository.java
+│   │       └── SplitifyPlaylistRepository.java
+│   └── resources/
+│       ├── application.properties
+│       ├── application-dev.properties
+│       ├── application-prod.properties
+│       └── static/                    ← Build de React (generado por Vite)
+└── src/test/
+    └── java/...
+----
+
+'''
+
+== 5. Arquitectura del Backend
+
+=== 5.1 Capas
+
+El backend sigue una arquitectura en capas:
+
+* *Controller:* recibe las peticiones HTTP, valida la entrada y delega al servicio correspondiente. Todos los endpoints se exponen bajo `/api/**`.
+* *Service:* contiene la lógica de negocio. Coordina la obtención de datos de Spotify, la clasificación con ChatGPT y la creación de playlists.
+* *Repository:* acceso a datos mediante Spring Data JPA.
+
+=== 5.2 Servicios Principales
+
+|===
+|Servicio |Responsabilidad
+
+|`SpotifyService` |Comunicación con la Spotify Web API: obtener playlists del usuario, obtener canciones de una playlist, crear playlists, agregar canciones, eliminar playlists.
+|`ClassificationService` |Comunicación con la API de ChatGPT para clasificar el género e idioma de cada canción a partir de su nombre y artista. Gestiona el caché de clasificaciones para evitar consultas repetidas.
+|`PlaylistService` |Lógica de negocio central: filtrado por idioma/género/época, aplicación de reglas de negocio (RN1–RN5), orquestación de la creación y actualización de playlists.
+|===
+
+=== 5.3 Endpoints de la API REST
+
+|===
+|Método |Ruta |Descripción |RF
+
+|GET |`/api/auth/status` |Estado de la sesión del usuario |RF1
+|POST |`/api/auth/logout` |Cerrar sesión |RF1
+|GET |`/api/playlists` |Obtener todas las playlists del usuario (Spotify + Splitify) |RF2
+|GET |`/api/playlists/{id}/songs` |Obtener canciones de una playlist con metadatos |RF2, RF3
+|POST |`/api/playlists/create/by-language` |Crear playlists ordenadas por idioma |RF4
+|POST |`/api/playlists/create/by-genre` |Crear playlists ordenadas por género |RF5
+|POST |`/api/playlists/create/by-release-date` |Crear playlist ordenada por fecha de lanzamiento |RF6
+|POST |`/api/playlists/create/combined` |Crear playlists de múltiples tipos genéricos a la vez |RF6.1
+|POST |`/api/playlists/create/custom` |Crear playlist personalizada con filtros combinados |RF7
+|PUT |`/api/playlists/splitify/{id}/refresh` |Actualizar una playlist de Splitify |RF2
+|PUT |`/api/playlists/splitify/batch/refresh` |Actualizar múltiples playlists de Splitify |RF2.1
+|DELETE |`/api/playlists/splitify/{id}` |Eliminar una playlist de Splitify |RF2
+|DELETE |`/api/playlists/splitify/batch` |Eliminar múltiples playlists de Splitify |RF2.1
+|===
+
+'''
+
+== 6. Arquitectura del Frontend
+
+=== 6.1 SPA y Navegación
+
+El frontend es una Single Page Application con navegación del lado del cliente. Spring Boot sirve el `index.html` generado por Vite para cualquier ruta que no comience con `/api/`. La navegación entre páginas no recarga el navegador.
+
+=== 6.2 Páginas Principales
+
+|===
+|Página |Ruta |Descripción
+
+|Login |`/login` |Botón de inicio de sesión con Spotify
+|Principal |`/` |Sección superior (playlists del usuario con selección) y sección inferior (playlists de Splitify con acciones individuales y en lote)
+|Detalle de playlist |`/playlist/:id` |Lista de canciones con metadatos (nombre, artista, año, género)
+|Crear playlist personalizada |`/create` |Formulario con filtros de idioma, género y época para playlists personalizadas (RF7)
+|===
+
+=== 6.3 Comunicación con el Backend
+
+Todas las llamadas al backend se realizan mediante `fetch` o una librería HTTP equivalente, apuntando a `/api/**`. En desarrollo, Vite redirige estas peticiones al servidor de Spring Boot mediante su proxy integrado.
+
+'''
+
+== 7. Integraciones Externas
+
+=== 7.1 Spotify Web API
+
+|===
+|Operación |Endpoint de Spotify |Uso en el sistema
+
+|Autenticación |OAuth 2.0 Authorization Code Flow |Inicio de sesión del usuario (RF1)
+|Obtener playlists |`GET /me/playlists` |Listar playlists del usuario (RF2)
+|Obtener Liked Songs |`GET /me/tracks` |Incluir Liked Songs como playlist seleccionable (RF2)
+|Obtener canciones |`GET /playlists/{id}/tracks` |Leer canciones para clasificación y filtrado (RF3)
+|Crear playlist |`POST /users/{id}/playlists` |Generar nuevas playlists (RF4–RF7)
+|Agregar canciones |`POST /playlists/{id}/tracks` |Poblar las playlists creadas (RF4–RF7)
+|Eliminar playlist |`DELETE /playlists/{id}/followers` |Eliminar playlists de Splitify (RF2, RF2.1)
+|===
+
+=== 7.2 API de Clasificación (ChatGPT)
+
+El servicio `ClassificationService` envía el nombre y artista de cada canción a la API de ChatGPT para obtener:
+
+* *Género:* clasificado en una de las 10 categorías definidas en el SRS (sección 3.2).
+* *Idioma:* clasificado en uno de los 16 idiomas soportados (sección 3.1) o marcado como no soportado.
+
+Para optimizar costos y rendimiento, las clasificaciones se almacenan en caché en la base de datos. Si una canción ya fue clasificada previamente, no se consulta la API nuevamente.
+
+'''
+
+== 8. Modelo de Datos
+
+=== 8.1 Entidades
+
+[source]
+----
+Song
+├── spotifyId: String (PK)       ← ID único de Spotify
+├── name: String
+├── artist: String
+├── releaseYear: Integer
+├── genre: String                ← Género clasificado (de los 10 definidos)
+└── language: String             ← Idioma clasificado
+
+SplitifyPlaylist
+├── id: Long (PK, autogenerado)
+├── spotifyPlaylistId: String    ← ID de la playlist en Spotify
+├── name: String
+├── type: Enum                   ← LANGUAGE, GENRE, RELEASE_DATE, CUSTOM
+├── userId: String               ← ID del usuario de Spotify propietario
+├── sourcePlaylistIds: String    ← IDs de las playlists origen (separados por coma)
+├── createdAt: Timestamp
+└── updatedAt: Timestamp
+----
+
+=== 8.2 Estrategia de Persistencia
+
+* La entidad `Song` funciona como caché de clasificaciones. Evita consultas repetidas a la API de ChatGPT para canciones ya clasificadas.
+* La entidad `SplitifyPlaylist` registra las playlists creadas por el sistema, permitiendo identificarlas en la sección inferior de la página principal y rastrear sus playlists origen para la funcionalidad de actualización.
+* Las playlists del usuario de Spotify no se persisten localmente; se obtienen en tiempo real desde la Spotify API.
+
+'''
+
+== 9. Autenticación y Seguridad
+
+=== 9.1 Flujo de Autenticación
+
+[source]
+----
+Usuario ──▶ [Botón "Iniciar sesión"] ──▶ Spotify OAuth
+                                              │
+                                    (autoriza permisos)
+                                              │
+Spotify ──▶ [Redirect con código] ──▶ Backend (Spring Security)
+                                              │
+                                    (intercambia código por token)
+                                              │
+Backend ──▶ [Sesión autenticada] ──▶ Frontend (acceso a /api/**)
+----
+
+=== 9.2 Reglas de Seguridad
+
+|===
+|Ruta |Acceso
+
+|`/api/**` |Solo usuarios autenticados
+|`/api/auth/status` |Público (para verificar estado de sesión)
+|`/login`, `/oauth2/**` |Público (flujo OAuth)
+|Cualquier otra ruta |Público (sirve el SPA)
+|===
+
+=== 9.3 Permisos de Spotify (Scopes)
+
+|===
+|Scope |Necesario para
+
+|`playlist-read-private` |Leer playlists privadas del usuario
+|`playlist-read-collaborative` |Leer playlists colaborativas
+|`playlist-modify-public` |Crear y modificar playlists públicas
+|`playlist-modify-private` |Crear y modificar playlists privadas
+|`user-library-read` |Acceder a Liked Songs
+|===
+
+'''
+
+== 10. Integración Frontend-Backend (Build y Desarrollo)
+
+=== 10.1 Desarrollo Local
+
+En desarrollo se ejecutan dos procesos en paralelo:
+
+* `./gradlew bootRun` — Backend en el puerto *8080*
+* `npm run dev` (dentro de `frontend/`) — Vite dev server en el puerto *5173* con Hot Module Replacement
+
+Vite está configurado con un proxy que redirige las peticiones `/api/**` al puerto 8080, permitiendo desarrollo frontend sin CORS ni configuración adicional.
+
+=== 10.2 Build de Producción
+
+Gradle orquesta el build completo mediante el plugin `com.github.node-gradle.node`:
+
+[source]
+----
+./gradlew build
+    │
+    ├── 1. npm install (frontend/)
+    ├── 2. npm run build (frontend/)
+    │       └── Vite genera archivos en src/main/resources/static/
+    ├── 3. Compilación Java
+    └── 4. Empaquetado JAR
+            └── JAR único contiene backend + frontend estático
+----
+
+El resultado es un *único archivo JAR* que sirve tanto la API como el frontend estático.
+
+=== 10.3 Configuración de Vite
+
+El archivo `frontend/vite.config.ts` define:
+
+* *`build.outDir`*: `../src/main/resources/static` — deposita el build donde Spring Boot sirve archivos estáticos.
+* *`server.proxy`*: redirige `/api` al backend durante desarrollo.
+
+=== 10.4 SPA Forwarding
+
+Un controller en Spring Boot reenvía todas las rutas no-API al `index.html`, permitiendo que React maneje la navegación del lado del cliente:
+
+[source,java]
+----
+@Controller
+public class SpaController {
+    @GetMapping(value = "/{path:[^\\.]*}")
+    public String forward() {
+        return "forward:/index.html";
+    }
+}
+----
+
+'''
+
+== 11. Despliegue
+
+=== 11.1 Estrategia
+
+El despliegue en Linode consiste en ejecutar el JAR autónomo generado por el build:
+
+[source,bash]
+----
+java -jar splitify.jar --spring.profiles.active=prod
+----
+
+=== 11.2 Perfiles de Configuración
+
+|===
+|Perfil |Base de datos |Uso
+
+|`dev` (por defecto) |H2 en memoria |Desarrollo local
+|`prod` |PostgreSQL |Producción en Linode
+|===
+
+=== 11.3 Variables de Entorno Requeridas (Producción)
+
+|===
+|Variable |Descripción
+
+|`SPOTIFY_CLIENT_ID` |Client ID de la aplicación registrada en Spotify Developer
+|`SPOTIFY_CLIENT_SECRET` |Client Secret de Spotify
+|`OPENAI_API_KEY` |API key para la clasificación de género e idioma
+|`DATABASE_URL` |URL de conexión a PostgreSQL
+|===
+
+'''
+
+== 12. Historial de Cambios
+
+|===
+|Fecha |Versión |Descripción
+
+|2026-03-30 |1.0 |Versión inicial del documento
+|===
