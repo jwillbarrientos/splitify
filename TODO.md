@@ -5,7 +5,8 @@
 - (10m)compartir repo en github
 - (1h)relevamiento de necesidades funcionales, definicion de producto - responde al "que hacemos"
   - ordenar por (idioma, estilo/genero, anho de lanzamiento del original)
-- (2h)arquitectura y disenho de software - responde al "como lo hacemos"
 - (1h)disenho de UI usando claude code y pencil
+- (2h)arquitectura y disenho de software - responde al "como lo hacemos"
 - (3d)vibecodear todo ATM (a toda mierda)
 - publicar en linode
+-- conversacion sobre figma claude --resume 62fb32fd-5ecc-44a9-b4e0-acbafda8ff2b
