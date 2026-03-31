@@ -35,3 +35,11 @@ out/
 
 ### VS Code ###
 .vscode/
+
+### SQLite ###
+*.db
+
+### Frontend ###
+frontend/node_modules/
+frontend/dist/
+src/main/resources/static/

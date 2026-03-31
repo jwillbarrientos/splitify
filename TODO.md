@@ -1,3 +1,9 @@
+- cambiar mi design pen y cambiar my documento de requerimientos y arquitectura en base a los nuevos cambios
+- disenar la base de datos
+- intentar integrar el login de spotify (explicame como crearme una cuenta de developer en Spotify para tener acceso a loguearme via OAuth)
+- en la pagina principal trame mis playlists de spotify y las 10 primeras musicas de spotify
+- agregar un boton a la pagina principal que va a crear una playlist de Splitify y le va a poner 2 de las musicas aleatorias que estan en algunas de las playlists
+
 - (2h)investigar si es realmente posible con los ultimos cambios de la api de spotify lo siguiente:
   - obtener referencias de las musicas (musica id/name/artist name) q existen en todos los playlists del usuario y de los 'liked' musics
   - crear playlists

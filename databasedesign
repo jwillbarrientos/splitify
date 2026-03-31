@@ -1,0 +1,30 @@
+User
+id
+email
+password
+spotify id o algo asi necesario
+
+Playlist spotify
+id
+owner
+songs
+quantity songs
+languages
+genres
+periods
+artists(para futura funcion)
+
+Playlist splitify
+id
+owner
+songs
+quantity songs
+base playlists
+
+Song
+id
+name
+artist name
+language
+original release date
+genre

@@ -2,8 +2,8 @@
 
 == Splitify
 
-*Versión:* 1.1
-*Fecha:* 2026-03-30
+*Versión:* 1.2
+*Fecha:* 2026-03-31
 *Autor:* Barri
 
 '''
@@ -49,32 +49,13 @@ Usuarios de Spotify que desean organizar automáticamente sus bibliotecas musica
 
 == 3. Catálogos del Sistema
 
-=== 3.1 Idiomas Soportados
+=== 3.1 Idiomas
 
-|===
-|# |Idioma 
-
-|1 |Inglés
-|2 |Español
-|3 |Portugués 
-|4 |Coreano
-|5 |Japonés
-|6 |Francés
-|7 |Alemán
-|8 |Italiano
-|9 |Hindi
-|10 |Punjabi
-|11 |Ruso
-|12 |Turco
-|13 |Chino (mandarín)
-|14 |Árabe
-|15 |Indonesio
-|16 |Sin letra
-|===
+Los idiomas no están predefinidos. El sistema detecta dinámicamente el idioma de cada canción mediante consultas a la API de ChatGPT, que analiza el nombre, artista y contexto de la canción para determinar el idioma exacto (ej: español, inglés, coreano, tailandés, suajili, etc.). Las canciones instrumentales o sin letra se clasifican como *"Sin letra"*.
 
 ____
 
-Las canciones cuyo idioma no figure entre los soportados se agruparán en una playlist denominada *"Other Languages"*. Sin embargo, si se detectan más de 5 canciones en un mismo idioma no soportado, el sistema creará una playlist individual para dicho idioma. Por ejemplo, si el usuario posee más de 5 canciones en tailandés, se generará una playlist exclusiva para ese idioma.
+No existe un catálogo cerrado de idiomas. El sistema reconoce cualquier idioma que ChatGPT pueda identificar. Esto permite generar playlists para idiomas que un catálogo fijo no contemplaría (ej: tailandés, suajili, catalán).
 
 ____
 
@@ -112,13 +93,14 @@ Las canciones se clasifican por década según su año original de lanzamiento (
 === 4.1 Metadatos de una Canción
 
 |===
-|Campo |Descripción |Fuente 
+|Campo |Descripción |Fuente
 
 |ID |Identificador único de la canción |Spotify API
 |Nombre |Nombre de la canción |Spotify API
 |Artista |Nombre del artista |Spotify API
-|Año de lanzamiento |Año original de lanzamiento |ChatGPT API
+|Año de lanzamiento |Año original de lanzamiento (no el de remasterización) |ChatGPT API
 |Género |Género principal (de los 10 definidos) |ChatGPT API
+|Idioma |Idioma de la canción (detectado dinámicamente) |ChatGPT API
 |===
 
 '''
@@ -136,9 +118,29 @@ Las canciones se clasifican por década según su año original de lanzamiento (
 
 '''
 
+=== RF1.1 — Sincronización de Playlists
+
+*Descripción:* Antes de poder operar con sus playlists, el usuario deberá sincronizarlas desde Spotify. La primera vez que el usuario accede al sistema (o cuando no existen playlists sincronizadas), se mostrará un estado vacío con un botón *"Sincronizar Playlists"*. Al presionarlo, el sistema mostrará una pantalla bloqueante de sincronización que impide cualquier otra interacción hasta que el proceso finalice.
+
+*Flujo:*
+1. El usuario inicia sesión y accede a la página principal.
+2. Si no existen playlists sincronizadas, se muestra un estado vacío con el botón "Sincronizar Playlists". Los demás botones de acción (ej: "Organizar") se muestran deshabilitados.
+3. El usuario presiona "Sincronizar Playlists".
+4. Se muestra una pantalla bloqueante con el mensaje "Sincronizando..." que impide cualquier navegación o interacción.
+5. El sistema obtiene todas las playlists del usuario desde Spotify (incluyendo Liked Songs).
+6. Al finalizar, se redirige al usuario a la página principal con las playlists ya cargadas.
+
+*Criterios de aceptación:*
+- Si no hay playlists sincronizadas, la página principal muestra un estado vacío con el botón "Sincronizar Playlists".
+- Los botones de acción se muestran deshabilitados mientras no haya playlists sincronizadas.
+- Durante la sincronización, se muestra una pantalla bloqueante que impide cualquier interacción.
+- Al finalizar la sincronización, las playlists se muestran en la página principal.
+
+'''
+
 === RF2 — Visualización y Organización de Playlists
 
-*Descripción:* El sistema obtendrá y mostrará todas las playlists del usuario (incluyendo Liked Songs) en la página principal, organizadas en dos secciones:
+*Descripción:* Una vez sincronizadas las playlists (RF1.1), el sistema mostrará todas las playlists del usuario en la página principal, organizadas en dos secciones:
 
 * *Sección superior — Playlists del usuario:* playlists creadas por el usuario en Spotify. Cada playlist cuenta con una casilla de selección que permite marcarla como origen para la generación de nuevas playlists (RF4–RF7). Se incluye un botón *"Seleccionar todas"* para marcar o desmarcar todas las playlists de esta sección simultáneamente.
 * *Sección inferior — Playlists de Splitify:* playlists generadas previamente por el sistema. Cada playlist dispone de:
@@ -176,11 +178,14 @@ El usuario puede acceder a cualquier playlist (de usuario o de Splitify) para co
 
 === RF3 — Obtención de Metadatos de Canciones
 
-*Descripción:* El sistema obtendrá la información de cada canción en una playlist: id, nombre, artista, año original de lanzamiento y género (clasificado mediante ChatGPT API).
+*Descripción:* El sistema obtendrá la información de cada canción en una playlist: id, nombre, artista, año original de lanzamiento, género e idioma. El año de lanzamiento, género e idioma se obtienen mediante ChatGPT API. Se utiliza ChatGPT para el año de lanzamiento en lugar de la fecha de Spotify, ya que Spotify puede devolver la fecha de una reedición o remasterización en vez de la del lanzamiento original. En la vista de detalle de una playlist, las canciones se cargarán de forma progresiva conforme el usuario haga scroll (*carga paginada / infinite scroll*), ya que una playlist puede contener cientos o miles de canciones.
 
 *Criterios de aceptación:*
 - Se obtienen todos los campos definidos en la sección 4.1 para cada canción.
 - El género se clasifica correctamente en una de las 10 categorías definidas en la sección 3.2.
+- El idioma se detecta dinámicamente mediante ChatGPT API (ver sección 3.1).
+- En la vista de detalle, las canciones se cargan de forma paginada conforme el usuario hace scroll, sin cargar todas de una vez.
+- Se muestra un indicador de carga mientras se obtienen más canciones.
 
 '''
 
@@ -190,9 +195,8 @@ El usuario puede acceder a cualquier playlist (de usuario o de Splitify) para co
 
 *Flujo:*
 1. El usuario selecciona una o más playlists origen (incluyendo Liked Songs) desde la sección superior de la página principal.
-2. El sistema genera una playlist por cada idioma detectado entre las canciones de las playlists seleccionadas (hasta 16 idiomas soportados, incluyendo "Sin letra").
-3. Las canciones en idiomas no soportados se agrupan en una playlist denominada "Other Languages", salvo que existan más de 5 canciones en un mismo idioma no soportado, en cuyo caso se generará una playlist individual para dicho idioma.
-4. Las canciones dentro de cada playlist se ordenan por fecha original de lanzamiento (ascendente).
+2. El sistema genera una playlist por cada idioma detectado entre las canciones de las playlists seleccionadas. Los idiomas se determinan dinámicamente a partir de la clasificación de ChatGPT (ver sección 3.1), sin limitarse a un catálogo fijo.
+3. Las canciones dentro de cada playlist se ordenan por fecha original de lanzamiento (ascendente).
 
 *Nomenclatura de playlists creadas:*
 `Splitify {Idioma} Songs` (ej: `Splitify Español Songs`, `Splitify Inglés Songs`)
@@ -245,13 +249,15 @@ El usuario puede acceder a cualquier playlist (de usuario o de Splitify) para co
 
 === RF7 — Ordenar por Idioma + Género + Época (Personalizado)
 
-*Descripción:* El usuario podrá crear una nueva playlist combinando filtros de idioma, género y época simultáneamente.
+*Descripción:* El usuario podrá crear una nueva playlist combinando filtros de idioma, género y época simultáneamente. Los filtros disponibles se determinan dinámicamente a partir de las canciones de las playlists seleccionadas: el sistema analiza los idiomas, géneros y décadas que realmente existen en las canciones y solo muestra esos filtros. Esto evita que el usuario seleccione filtros que no producirían resultados (ej: si no hay canciones en chino, el filtro de chino no aparece).
 
 *Flujo:*
 1. El usuario selecciona una o más playlists origen (incluyendo Liked Songs) desde la sección superior de la página principal.
-2. Selecciona idioma(s), género(s) y época(s).
-3. El usuario escribe el nombre que desea para la playlist.
-4. El sistema crea una única playlist con las canciones que cumplan todos los criterios.
+2. El sistema analiza las canciones de las playlists seleccionadas y determina los idiomas, géneros y décadas presentes.
+3. Se presentan al usuario únicamente los filtros correspondientes a idiomas, géneros y décadas que existen en las canciones seleccionadas.
+4. El usuario selecciona idioma(s), género(s) y/o época(s) entre los filtros disponibles.
+5. El usuario escribe el nombre que desea para la playlist.
+6. El sistema crea una única playlist con las canciones que cumplan todos los criterios.
 
 *Nomenclatura de playlist creada:*
 (El usuario pone un nombre)
@@ -264,8 +270,9 @@ El usuario puede acceder a cualquier playlist (de usuario o de Splitify) para co
 |# |Regla 
 
 |RN1 |Todas las playlists creadas por el sistema estarán ordenadas por fecha de lanzamiento de las canciones (ascendente). 
-|RN2 |Las canciones cuyo idioma no coincida con ninguno de los 16 soportados se agrupan en "Other Languages" cuando se filtra por idioma. Si se detectan más de 5 canciones en un mismo idioma no soportado, se generará una playlist individual para dicho idioma.
-|RN3 |La clasificación de género se delega a ChatGPT API, mapeando cualquier subgénero a las 10 categorías principales.
+|RN2 |Los idiomas se detectan dinámicamente mediante ChatGPT API. Se genera una playlist por cada idioma detectado sin limitarse a un catálogo fijo. Las canciones instrumentales o sin letra se agrupan en una playlist "Sin letra".
+|RN3 |La clasificación de género se delega a ChatGPT API, mapeando cualquier subgénero a las 10 categorías principales. La clasificación de idioma también se delega a ChatGPT API, que identifica el idioma exacto de cada canción.
+|RN6 |Los filtros del modo personalizado (RF7) son dinámicos: solo se muestran los idiomas, géneros y décadas que existen en las canciones de las playlists seleccionadas. No se presentan opciones que no producirían resultados.
 |RN4 |La creación de playlists genéricas (RF4, RF5, RF6) siempre producirá al menos una playlist, dado que toda canción pertenece a un idioma, un género y una fecha de lanzamiento.
 |RN5 |La creación de playlists personalizadas (RF7) puede no generar ninguna playlist si ninguna canción cumple con todos los filtros seleccionados. En ese caso, el sistema notificará al usuario mediante un mensaje de error indicando que no se encontraron canciones que coincidan con los criterios especificados.
 |===
@@ -292,4 +299,5 @@ El usuario puede acceder a cualquier playlist (de usuario o de Splitify) para co
 
 |2026-03-27 |1.0 |Versión inicial del documento
 |2026-03-30 |1.1 |Formalización del lenguaje. Adición de RF2.1 (gestión en lote), RF6.1 (creación combinada de genéricas), RN4 y RN5 (comportamiento ante resultados vacíos). Detalle de la organización de la página principal y mecanismos de selección.
+|2026-03-31 |1.2 |Adición de RF1.1 (sincronización de playlists con estado vacío y pantalla bloqueante). Idiomas ahora son dinámicos (sección 3.1 reescrita, RN2 actualizada). Carga paginada de canciones en vista de detalle (RF3 actualizada). Filtros dinámicos en modo personalizado: solo se muestran idiomas, géneros y décadas presentes en las playlists seleccionadas (RF7 actualizado, RN6 nueva). Campo idioma añadido a metadatos de canción (sección 4.1).
 |===

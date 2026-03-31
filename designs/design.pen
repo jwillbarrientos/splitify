@@ -5,7 +5,7 @@
       "type": "frame",
       "id": "0qlkq",
       "x": 7,
-      "y": 1107,
+      "y": 1045,
       "name": "Design System",
       "width": 1200,
       "fill": "$--background",
@@ -929,13 +929,111 @@
               ]
             }
           ]
+        },
+        {
+          "type": "frame",
+          "id": "pN3it",
+          "name": "Empty States",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 16,
+          "children": [
+            {
+              "type": "text",
+              "id": "N8beK",
+              "fill": "$--foreground",
+              "content": "Empty States",
+              "fontFamily": "Inter",
+              "fontSize": 20,
+              "fontWeight": "700"
+            },
+            {
+              "type": "frame",
+              "id": "MHQ2i",
+              "name": "emptyStateRow",
+              "width": "fill_container",
+              "gap": 24,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "Vyitp",
+                  "name": "EmptyState",
+                  "reusable": true,
+                  "width": 350,
+                  "height": 220,
+                  "fill": "$--surface",
+                  "cornerRadius": "$--radius-lg",
+                  "stroke": {
+                    "align": "inside",
+                    "thickness": 1,
+                    "fill": "$--border"
+                  },
+                  "layout": "vertical",
+                  "gap": 12,
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon_font",
+                      "id": "Fh0Lq",
+                      "name": "esIcon",
+                      "width": 40,
+                      "height": 40,
+                      "iconFontName": "inbox",
+                      "iconFontFamily": "lucide",
+                      "fill": "$--foreground-muted"
+                    },
+                    {
+                      "type": "text",
+                      "id": "vHDUl",
+                      "name": "esTitle",
+                      "fill": "$--foreground-secondary",
+                      "content": "No hay elementos",
+                      "fontFamily": "Inter",
+                      "fontSize": 16,
+                      "fontWeight": "500"
+                    },
+                    {
+                      "type": "text",
+                      "id": "W73p8",
+                      "name": "esDesc",
+                      "fill": "$--foreground-muted",
+                      "textGrowth": "fixed-width",
+                      "width": 280,
+                      "content": "Los elementos aparecerán aquí cuando estén disponibles",
+                      "textAlign": "center",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "MKsMX",
+                      "x": 0,
+                      "y": 0,
+                      "name": "esSlot",
+                      "enabled": false,
+                      "slot": [
+                        "4xey2",
+                        "Gfdf1"
+                      ],
+                      "width": "fit_content(0)",
+                      "height": "fit_content(0)",
+                      "justifyContent": "center",
+                      "alignItems": "center"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
         }
       ]
     },
     {
       "type": "frame",
       "id": "6Pftb",
-      "x": 1575,
+      "x": 3103,
       "y": 0,
       "name": "Playlists - Home",
       "width": 1440,
@@ -1101,7 +1199,7 @@
                               "fill": "#000000FF"
                             },
                             "ZTVmp": {
-                              "content": "Organizar (0)",
+                              "content": "Organizar (2)",
                               "x": 44,
                               "y": 10,
                               "fill": "#000000FF"
@@ -1126,15 +1224,24 @@
                       "width": "fill_container",
                       "name": "card1",
                       "height": "fit_content",
+                      "stroke": {
+                        "align": "inside",
+                        "thickness": 2,
+                        "fill": "$--primary"
+                      },
                       "descendants": {
                         "d59VE": {
                           "width": "fill_container",
                           "height": "fit_content",
                           "x": 16,
-                          "y": 16
-                        },
-                        "6Mx0O": {
-                          "x": 207.2
+                          "y": 16,
+                          "children": [
+                            {
+                              "id": "DXzwS",
+                              "type": "ref",
+                              "ref": "s9QIZ"
+                            }
+                          ]
                         },
                         "eORix": {
                           "width": "fill_container",
@@ -1292,15 +1399,24 @@
                       "name": "card3",
                       "x": 558.4,
                       "height": "fit_content",
+                      "stroke": {
+                        "align": "inside",
+                        "thickness": 2,
+                        "fill": "$--primary"
+                      },
                       "descendants": {
                         "d59VE": {
                           "width": "fill_container",
                           "height": "fit_content",
                           "x": 16,
-                          "y": 16
-                        },
-                        "6Mx0O": {
-                          "x": 207.2
+                          "y": 16,
+                          "children": [
+                            {
+                              "id": "g5yWN",
+                              "type": "ref",
+                              "ref": "s9QIZ"
+                            }
+                          ]
                         },
                         "eORix": {
                           "width": "fill_container",
@@ -1615,6 +1731,7 @@
                           "ref": "glxSJ",
                           "name": "delBtn",
                           "x": 189,
+                          "opacity": 0.4,
                           "descendants": {
                             "jAD3e": {
                               "iconFontName": "trash-2",
@@ -1632,27 +1749,10 @@
                           "ref": "4xey2",
                           "width": "fit_content",
                           "height": "fit_content",
-                          "fill": {
-                            "type": "gradient",
-                            "gradientType": "linear",
-                            "enabled": true,
-                            "rotation": 90,
-                            "size": {
-                              "height": 1
-                            },
-                            "colors": [
-                              {
-                                "color": "$--primary",
-                                "position": 0
-                              },
-                              {
-                                "color": "$--accent-blue",
-                                "position": 1
-                              }
-                            ]
-                          },
+                          "fill": "$--primary",
                           "name": "actBtn",
                           "x": 421,
+                          "opacity": 0.4,
                           "descendants": {
                             "PVoAO": {
                               "iconFontName": "refresh-cw",
@@ -2470,8 +2570,8 @@
     {
       "type": "frame",
       "id": "pzZg8",
-      "x": 1575,
-      "y": 1296,
+      "x": 3103,
+      "y": 1308,
       "name": "Playlist Detail",
       "width": 1440,
       "fill": "$--background",
@@ -3386,8 +3486,8 @@
     {
       "type": "frame",
       "id": "VPKGR",
-      "x": 3136,
-      "y": 1033,
+      "x": 4669,
+      "y": 1045,
       "name": "Personalizado Modal - Overlay",
       "width": 1440,
       "height": 900,
@@ -4760,7 +4860,7 @@
     {
       "type": "frame",
       "id": "Z60XS",
-      "x": 3136,
+      "x": 4669,
       "y": 0,
       "name": "Organize Modal - Overlay",
       "width": 1440,
@@ -5217,8 +5317,8 @@
     {
       "type": "frame",
       "id": "Mb6V4",
-      "x": 4670,
-      "y": 1033,
+      "x": 6195,
+      "y": 1045,
       "name": "Error Modal - Overlay",
       "width": 1440,
       "height": 900,
@@ -5387,6 +5487,415 @@
               "iconFontName": "x",
               "iconFontFamily": "lucide",
               "fill": "$--foreground-secondary"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "493oA",
+      "x": 1576,
+      "y": 0,
+      "name": "Playlists - Empty State",
+      "width": 1440,
+      "height": 900,
+      "fill": "$--background",
+      "layout": "vertical",
+      "children": [
+        {
+          "id": "4Mx3w",
+          "type": "ref",
+          "ref": "jbpc8",
+          "name": "headerInst",
+          "width": "fill_container",
+          "y": 0,
+          "height": 64,
+          "x": 0,
+          "descendants": {
+            "zsAsz": {
+              "height": "fit_content",
+              "width": "fit_content",
+              "x": 24,
+              "y": 14
+            },
+            "6MtV4": {
+              "x": 8,
+              "y": 8
+            },
+            "Tm1Ns": {
+              "x": 44,
+              "y": 4.5
+            },
+            "Y0Ik8": {
+              "x": 1261,
+              "height": "fit_content",
+              "width": "fit_content",
+              "y": 13.5
+            },
+            "qyaVK": {
+              "height": "fit_content",
+              "width": "fit_content"
+            },
+            "qyaVK/jAD3e": {
+              "x": 20,
+              "y": 10.5
+            },
+            "qyaVK/NwEx7": {
+              "x": 44,
+              "y": 10
+            }
+          }
+        },
+        {
+          "type": "frame",
+          "id": "bVmcx",
+          "name": "main",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 24,
+          "padding": 32,
+          "children": [
+            {
+              "type": "frame",
+              "id": "1JvG8",
+              "name": "userSection",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 20,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "a2xx1",
+                  "name": "topBar",
+                  "width": "fill_container",
+                  "justifyContent": "space_between",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "I7LX5",
+                      "name": "topLeft",
+                      "layout": "vertical",
+                      "gap": 4,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "frrNz",
+                          "fill": "$--foreground",
+                          "content": "Tus Playlists de Spotify",
+                          "fontFamily": "Inter",
+                          "fontSize": 24,
+                          "fontWeight": "700"
+                        },
+                        {
+                          "type": "text",
+                          "id": "hy3at",
+                          "fill": "$--foreground-secondary",
+                          "content": "Sincroniza tus playlists de Spotify para empezar a organizarlas",
+                          "fontFamily": "Inter",
+                          "fontSize": 14,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "FBkkU",
+                      "name": "topRight",
+                      "gap": 12,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "id": "vmBTa",
+                          "type": "ref",
+                          "ref": "4xey2",
+                          "name": "organizeBtnDisabled",
+                          "opacity": 0.4,
+                          "fill": {
+                            "type": "gradient",
+                            "gradientType": "linear",
+                            "enabled": true,
+                            "rotation": 90,
+                            "size": {
+                              "height": 1
+                            },
+                            "colors": [
+                              {
+                                "color": "$--primary",
+                                "position": 0
+                              },
+                              {
+                                "color": "$--accent-blue",
+                                "position": 1
+                              }
+                            ]
+                          },
+                          "descendants": {
+                            "PVoAO": {
+                              "iconFontName": "sparkles",
+                              "fill": "#000000FF"
+                            },
+                            "ZTVmp": {
+                              "content": "Organizar (0)",
+                              "fill": "#000000FF"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "id": "kuQMn",
+                  "type": "ref",
+                  "ref": "Vyitp",
+                  "name": "emptyStateSpotify",
+                  "width": "fill_container",
+                  "height": 280,
+                  "y": 70,
+                  "descendants": {
+                    "Fh0Lq": {
+                      "x": 664,
+                      "y": 54,
+                      "iconFontName": "music",
+                      "width": 48,
+                      "height": 48
+                    },
+                    "vHDUl": {
+                      "x": 556,
+                      "y": 114,
+                      "content": "Aún no hay playlists sincronizadas"
+                    },
+                    "W73p8": {
+                      "x": 548,
+                      "y": 145,
+                      "content": "Haz clic en \"Sincronizar Playlists\" para traer tus playlists de Spotify"
+                    },
+                    "MKsMX": {
+                      "id": "6uIJM",
+                      "type": "ref",
+                      "ref": "4xey2",
+                      "name": "syncBtn",
+                      "descendants": {
+                        "PVoAO": {
+                          "iconFontName": "refresh-cw",
+                          "fill": "#000000FF"
+                        },
+                        "ZTVmp": {
+                          "content": "Sincronizar Playlists",
+                          "fill": "#000000FF"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "line",
+              "id": "kN8mW",
+              "name": "sectionDivider",
+              "width": "fill_container",
+              "height": 0,
+              "stroke": {
+                "align": "center",
+                "thickness": 1,
+                "fill": "$--border"
+              }
+            },
+            {
+              "type": "frame",
+              "id": "u0mKl",
+              "name": "splitifySection",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 20,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "eRZU5",
+                  "name": "header",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 4,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "hU22S",
+                      "fill": "$--foreground",
+                      "content": "Playlists de Splitify",
+                      "fontFamily": "Inter",
+                      "fontSize": 20,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "type": "text",
+                      "id": "mfnff",
+                      "fill": "$--foreground-secondary",
+                      "content": "Creadas automáticamente al organizar tus canciones",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "id": "aEpBv",
+                  "type": "ref",
+                  "ref": "Vyitp",
+                  "name": "emptyStateSplitify",
+                  "width": "fill_container",
+                  "height": 200,
+                  "y": 64,
+                  "descendants": {
+                    "Fh0Lq": {
+                      "x": 668,
+                      "y": 42.5,
+                      "iconFontName": "folder-open"
+                    },
+                    "vHDUl": {
+                      "x": 611,
+                      "y": 94.5,
+                      "content": "No hay playlists aún"
+                    },
+                    "W73p8": {
+                      "x": 548,
+                      "y": 125.5,
+                      "content": "Las playlists organizadas aparecerán aquí después de sincronizar y organizar"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "gESjP",
+      "x": 1576,
+      "y": 1045,
+      "name": "Sincronizando - Overlay",
+      "width": 1440,
+      "height": 900,
+      "fill": "#0A0A0AFF",
+      "layout": "none",
+      "children": [
+        {
+          "type": "frame",
+          "id": "JbL60",
+          "x": 480,
+          "y": 280,
+          "name": "SyncModal",
+          "width": 480,
+          "fill": "$--surface",
+          "cornerRadius": "$--radius-xl",
+          "stroke": {
+            "align": "inside",
+            "thickness": 1,
+            "fill": "$--border"
+          },
+          "effect": {
+            "type": "shadow",
+            "shadowType": "outer",
+            "color": "#00000066",
+            "offset": {
+              "x": 0,
+              "y": 8
+            },
+            "blur": 32
+          },
+          "layout": "vertical",
+          "gap": 24,
+          "padding": 40,
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "rCK9T",
+              "name": "spinnerContainer",
+              "width": 72,
+              "height": 72,
+              "fill": {
+                "type": "gradient",
+                "gradientType": "linear",
+                "enabled": true,
+                "rotation": 135,
+                "size": {
+                  "height": 1
+                },
+                "colors": [
+                  {
+                    "color": "$--primary",
+                    "position": 0
+                  },
+                  {
+                    "color": "$--accent-blue",
+                    "position": 1
+                  }
+                ]
+              },
+              "cornerRadius": "$--radius-full",
+              "layout": "vertical",
+              "justifyContent": "center",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "icon_font",
+                  "id": "nC933",
+                  "width": 32,
+                  "height": 32,
+                  "iconFontName": "refresh-cw",
+                  "iconFontFamily": "lucide",
+                  "fill": "#FFFFFFFF"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "2ILcN",
+              "name": "textGroup",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 8,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "obd9Q",
+                  "fill": "$--foreground",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "Sincronizando...",
+                  "textAlign": "center",
+                  "fontFamily": "Inter",
+                  "fontSize": 24,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "jBpji",
+                  "fill": "$--foreground-secondary",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "Trayendo tus playlists de Spotify.\nEsto puede tardar unos minutos.",
+                  "textAlign": "center",
+                  "fontFamily": "Inter",
+                  "fontSize": 14,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "Cx4wg",
+              "fill": "$--foreground-muted",
+              "content": "Por favor no cierres esta ventana",
+              "fontFamily": "Inter",
+              "fontSize": 12,
+              "fontWeight": "normal"
             }
           ]
         }

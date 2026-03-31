@@ -2,8 +2,8 @@
 
 == Splitify
 
-*Versión:* 1.0
-*Fecha:* 2026-03-30
+*Versión:* 1.1
+*Fecha:* 2026-03-31
 *Autor:* Barri
 
 '''
@@ -24,7 +24,7 @@ Cubre la arquitectura del backend (Spring Boot), el frontend (React SPA), la int
 
 Splitify sigue una arquitectura *cliente-servidor* con separación clara entre frontend y backend:
 
-* *Frontend:* Single Page Application (SPA) desarrollada con React, TypeScript y Vite. Se comunica con el backend exclusivamente mediante una API REST.
+* *Frontend:* Single Page Application (SPA) desarrollada con React, JavaScript y Vite. Se comunica con el backend exclusivamente mediante una API REST.
 * *Backend:* API REST desarrollada con Spring Boot (Java 25). Gestiona la lógica de negocio, la autenticación, la persistencia y la comunicación con APIs externas.
 * *APIs externas:* Spotify Web API (autenticación, lectura/escritura de playlists) y ChatGPT API (clasificación de género musical).
 
@@ -35,7 +35,7 @@ ____
 ┌─────────────────────────────────────────────────────────────┐
 │                        Cliente (Browser)                    │
 │  ┌───────────────────────────────────────────────────────┐  │
-│  │              React SPA (Vite + TypeScript)            │  │
+│  │              React SPA (Vite + JavaScript)             │  │
 │  │  Páginas: Login │ Principal │ Detalle │ Crear Playlist│  │
 │  └──────────────────────┬────────────────────────────────┘  │
 └─────────────────────────┼───────────────────────────────────┘
@@ -53,7 +53,7 @@ ____
 │             │                  │                             │
 │        ┌────▼────┐    ┌───────▼────────┐                    │
 │        │   BD    │    │  APIs Externas  │                    │
-│        │ (H2/PG) │    │ Spotify│ChatGPT │                    │
+│        │ SQLite/PG│    │ Spotify│ChatGPT │                    │
 │        └─────────┘    └────────────────┘                    │
 └─────────────────────────────────────────────────────────────┘
 ----
@@ -67,12 +67,15 @@ ____
 |===
 |Capa |Tecnología |Justificación
 
-|Frontend |React 19 + TypeScript |Ecosistema maduro para SPAs, tipado estático, amplia comunidad
+|Frontend |React 19 + JavaScript |Ecosistema maduro para SPAs, amplia comunidad
 |Bundler |Vite |Hot Module Replacement rápido, build optimizado, proxy de desarrollo integrado
+|CSS |Tailwind CSS |Framework de utilidades CSS; permite construir componentes con estilos directos sin escribir archivos CSS manuales
+|Navegación |React Router v7 |Router estándar de la comunidad React para SPAs
 |Backend |Spring Boot 4.0.4 (Java 25) |Framework estándar del ecosistema Java, integración nativa con OAuth2 y JPA
 |Persistencia |Spring Data JPA |Abstracción sobre JPA para acceso a datos
-|Base de datos |H2 (desarrollo) / PostgreSQL (producción) |H2 para desarrollo local sin configuración; PostgreSQL para producción
+|Base de datos |SQLite (desarrollo) / PostgreSQL (producción) |SQLite para desarrollo local sin configuración; PostgreSQL para producción
 |Autenticación |Spring Security + OAuth 2.0 |Integración directa con Spotify OAuth
+|IA (clasificación) |OpenAI Java SDK + GPT-4.1-nano |SDK oficial de OpenAI para Java; GPT-4.1-nano es suficiente y económico para tareas de categorización
 |Build |Gradle (Kotlin DSL) + plugin Node |Build unificado: Gradle orquesta tanto el backend como el frontend
 |Despliegue |Linode |Servidor de despliegue objetivo (según requerimientos)
 |===
@@ -88,20 +91,20 @@ splitify/
 ├── settings.gradle.kts
 ├── frontend/                          ← Proyecto React (Vite)
 │   ├── package.json
-│   ├── tsconfig.json
-│   ├── vite.config.ts
+│   ├── vite.config.js
+│   ├── tailwind.config.js
 │   ├── index.html
 │   └── src/
-│       ├── main.tsx                   ← Punto de entrada React
-│       ├── App.tsx                    ← Router principal
+│       ├── main.jsx                   ← Punto de entrada React
+│       ├── App.jsx                    ← Router principal (React Router v7)
 │       ├── pages/                     ← Páginas/vistas
-│       │   ├── LoginPage.tsx
-│       │   ├── MainPage.tsx
-│       │   ├── PlaylistDetailPage.tsx
-│       │   └── CreatePlaylistPage.tsx
+│       │   ├── LoginPage.jsx
+│       │   ├── MainPage.jsx
+│       │   ├── PlaylistDetailPage.jsx
+│       │   └── CreatePlaylistPage.jsx
 │       ├── components/                ← Componentes reutilizables
 │       └── services/                  ← Clientes HTTP para la API
-│           └── api.ts
+│           └── api.js
 ├── src/main/
 │   ├── java/io/jona/smusic/sorted_music/
 │   │   ├── SortedMusicApplication.java
@@ -149,7 +152,7 @@ El backend sigue una arquitectura en capas:
 |Servicio |Responsabilidad
 
 |`SpotifyService` |Comunicación con la Spotify Web API: obtener playlists del usuario, obtener canciones de una playlist, crear playlists, agregar canciones, eliminar playlists.
-|`ClassificationService` |Comunicación con la API de ChatGPT para clasificar el género e idioma de cada canción a partir de su nombre y artista. Gestiona el caché de clasificaciones para evitar consultas repetidas.
+|`ClassificationService` |Comunicación con la API de ChatGPT para obtener el año original de lanzamiento, género e idioma de cada canción a partir de su nombre y artista. El año se solicita a ChatGPT (en lugar de usar el de Spotify) porque Spotify puede devolver la fecha de una reedición o remasterización. El idioma se detecta dinámicamente (sin catálogo fijo). Gestiona el caché de clasificaciones para evitar consultas repetidas.
 |`PlaylistService` |Lógica de negocio central: filtrado por idioma/género/época, aplicación de reglas de negocio (RN1–RN5), orquestación de la creación y actualización de playlists.
 |===
 
@@ -160,12 +163,14 @@ El backend sigue una arquitectura en capas:
 
 |GET |`/api/auth/status` |Estado de la sesión del usuario |RF1
 |POST |`/api/auth/logout` |Cerrar sesión |RF1
+|POST |`/api/playlists/sync` |Sincronizar playlists del usuario desde Spotify (operación bloqueante) |RF1.1
 |GET |`/api/playlists` |Obtener todas las playlists del usuario (Spotify + Splitify) |RF2
-|GET |`/api/playlists/{id}/songs` |Obtener canciones de una playlist con metadatos |RF2, RF3
+|GET |`/api/playlists/{id}/songs?page={n}&size={s}` |Obtener canciones de una playlist con metadatos (paginado) |RF2, RF3
 |POST |`/api/playlists/create/by-language` |Crear playlists ordenadas por idioma |RF4
 |POST |`/api/playlists/create/by-genre` |Crear playlists ordenadas por género |RF5
 |POST |`/api/playlists/create/by-release-date` |Crear playlist ordenada por fecha de lanzamiento |RF6
 |POST |`/api/playlists/create/combined` |Crear playlists de múltiples tipos genéricos a la vez |RF6.1
+|GET |`/api/playlists/available-filters?playlistIds={ids}` |Obtener idiomas, géneros y décadas disponibles en las playlists seleccionadas |RF7
 |POST |`/api/playlists/create/custom` |Crear playlist personalizada con filtros combinados |RF7
 |PUT |`/api/playlists/splitify/{id}/refresh` |Actualizar una playlist de Splitify |RF2
 |PUT |`/api/playlists/splitify/batch/refresh` |Actualizar múltiples playlists de Splitify |RF2.1
@@ -179,7 +184,7 @@ El backend sigue una arquitectura en capas:
 
 === 6.1 SPA y Navegación
 
-El frontend es una Single Page Application con navegación del lado del cliente. Spring Boot sirve el `index.html` generado por Vite para cualquier ruta que no comience con `/api/`. La navegación entre páginas no recarga el navegador.
+El frontend es una Single Page Application con navegación del lado del cliente gestionada por *React Router v7*. Spring Boot sirve el `index.html` generado por Vite para cualquier ruta que no comience con `/api/`. La navegación entre páginas no recarga el navegador.
 
 === 6.2 Páginas Principales
 
@@ -187,14 +192,19 @@ El frontend es una Single Page Application con navegación del lado del cliente.
 |Página |Ruta |Descripción
 
 |Login |`/login` |Botón de inicio de sesión con Spotify
-|Principal |`/` |Sección superior (playlists del usuario con selección) y sección inferior (playlists de Splitify con acciones individuales y en lote)
-|Detalle de playlist |`/playlist/:id` |Lista de canciones con metadatos (nombre, artista, año, género)
-|Crear playlist personalizada |`/create` |Formulario con filtros de idioma, género y época para playlists personalizadas (RF7)
+|Principal |`/` |Estado vacío con botón "Sincronizar Playlists" si no hay playlists sincronizadas. Una vez sincronizadas: sección superior (playlists del usuario con selección) y sección inferior (playlists de Splitify con acciones individuales y en lote)
+|Sincronizando |`/` (modal bloqueante) |Pantalla bloqueante que se muestra durante la sincronización de playlists, impidiendo cualquier interacción
+|Detalle de playlist |`/playlist/:id` |Lista de canciones con metadatos (nombre, artista, año, género, idioma) con carga paginada por scroll (infinite scroll)
+|Crear playlist personalizada |`/create` |Formulario con filtros dinámicos de idioma, género y época. Solo muestra los filtros correspondientes a idiomas, géneros y décadas presentes en las canciones de las playlists seleccionadas (RF7)
 |===
 
-=== 6.3 Comunicación con el Backend
+=== 6.3 Estilos
 
-Todas las llamadas al backend se realizan mediante `fetch` o una librería HTTP equivalente, apuntando a `/api/**`. En desarrollo, Vite redirige estas peticiones al servidor de Spring Boot mediante su proxy integrado.
+La interfaz utiliza *Tailwind CSS* como framework de utilidades. No se emplea una librería de componentes pre-construidos; todos los componentes se construyen manualmente con clases de utilidad de Tailwind, lo que permite un control total sobre el diseño.
+
+=== 6.4 Comunicación con el Backend
+
+Todas las llamadas al backend se realizan mediante `fetch`, apuntando a `/api/**`. En desarrollo, Vite redirige estas peticiones al servidor de Spring Boot mediante su proxy integrado.
 
 '''
 
@@ -214,12 +224,15 @@ Todas las llamadas al backend se realizan mediante `fetch` o una librería HTTP 
 |Eliminar playlist |`DELETE /playlists/{id}/followers` |Eliminar playlists de Splitify (RF2, RF2.1)
 |===
 
-=== 7.2 API de Clasificación (ChatGPT)
+=== 7.2 API de Clasificación (OpenAI)
 
-El servicio `ClassificationService` envía el nombre y artista de cada canción a la API de ChatGPT para obtener:
+El servicio `ClassificationService` utiliza el *OpenAI Java SDK* (`com.openai:openai-java`) para comunicarse con la API de OpenAI. El modelo utilizado es *GPT-4.1-nano*, seleccionado por ser suficiente para tareas de categorización simple y por su bajo costo.
 
+El servicio envía el nombre y artista de cada canción para obtener:
+
+* *Año original de lanzamiento:* se solicita a ChatGPT en lugar de usar la fecha de Spotify, ya que Spotify puede devolver la fecha de una reedición o remasterización en vez de la del lanzamiento original.
 * *Género:* clasificado en una de las 10 categorías definidas en el SRS (sección 3.2).
-* *Idioma:* clasificado en uno de los 16 idiomas soportados (sección 3.1) o marcado como no soportado.
+* *Idioma:* detectado dinámicamente sin limitarse a un catálogo fijo. ChatGPT identifica el idioma exacto de la canción (ej: español, coreano, tailandés, catalán). Las canciones instrumentales se clasifican como "Sin letra".
 
 Para optimizar costos y rendimiento, las clasificaciones se almacenan en caché en la base de datos. Si una canción ya fue clasificada previamente, no se consulta la API nuevamente.
 
@@ -286,7 +299,12 @@ Backend ──▶ [Sesión autenticada] ──▶ Frontend (acceso a /api/**)
 |Cualquier otra ruta |Público (sirve el SPA)
 |===
 
-=== 9.3 Permisos de Spotify (Scopes)
+=== 9.3 CSRF y CORS
+
+* *CORS:* En desarrollo, el proxy de Vite redirige las peticiones `/api/**` al backend, por lo que el navegador las ve como mismo origen y no se genera conflicto de CORS. En producción, frontend y backend se sirven desde el mismo JAR (mismo origen), por lo que CORS no aplica. No se requiere configuración adicional de CORS.
+* *CSRF:* Spring Security habilita protección CSRF por defecto. Para SPAs con autenticación basada en sesión, se configura Spring para exponer el token CSRF como cookie (`XSRF-TOKEN`). El frontend lee esta cookie y la envía como cabecera (`X-XSRF-TOKEN`) en cada petición que modifique estado (POST, PUT, DELETE).
+
+=== 9.4 Permisos de Spotify (Scopes)
 
 |===
 |Scope |Necesario para
@@ -309,7 +327,7 @@ En desarrollo se ejecutan dos procesos en paralelo:
 * `./gradlew bootRun` — Backend en el puerto *8080*
 * `npm run dev` (dentro de `frontend/`) — Vite dev server en el puerto *5173* con Hot Module Replacement
 
-Vite está configurado con un proxy que redirige las peticiones `/api/**` al puerto 8080, permitiendo desarrollo frontend sin CORS ni configuración adicional.
+Vite está configurado con un proxy que redirige las peticiones `/api/**` al puerto 8080, eliminando problemas de CORS durante el desarrollo (ver sección 9.3).
 
 === 10.2 Build de Producción
 
@@ -331,7 +349,7 @@ El resultado es un *único archivo JAR* que sirve tanto la API como el frontend 
 
 === 10.3 Configuración de Vite
 
-El archivo `frontend/vite.config.ts` define:
+El archivo `frontend/vite.config.js` define:
 
 * *`build.outDir`*: `../src/main/resources/static` — deposita el build donde Spring Boot sirve archivos estáticos.
 * *`server.proxy`*: redirige `/api` al backend durante desarrollo.
@@ -369,7 +387,7 @@ java -jar splitify.jar --spring.profiles.active=prod
 |===
 |Perfil |Base de datos |Uso
 
-|`dev` (por defecto) |H2 en memoria |Desarrollo local
+|`dev` (por defecto) |SQLite (archivo local) |Desarrollo local
 |`prod` |PostgreSQL |Producción en Linode
 |===
 
@@ -391,5 +409,6 @@ java -jar splitify.jar --spring.profiles.active=prod
 |===
 |Fecha |Versión |Descripción
 
-|2026-03-30 |1.0 |Versión inicial del documento
+|2026-03-30 |1.0 |Versión inicial del documento. Stack: React (JS) + Tailwind CSS + React Router v7, Spring Boot, SQLite/PostgreSQL, OpenAI Java SDK (GPT-4.1-nano).
+|2026-03-31 |1.1 |Nuevo endpoint de sincronización (POST /api/playlists/sync). Paginación en endpoint de canciones. Nuevo endpoint de filtros disponibles (GET /api/playlists/available-filters). Idiomas dinámicos en ClassificationService. Pantalla de sincronización bloqueante y estado vacío en frontend. Carga por scroll en vista de detalle. Filtros dinámicos en creación personalizada.
 |===
