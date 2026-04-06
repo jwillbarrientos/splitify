@@ -2,8 +2,8 @@
 
 == Splitify
 
-*Versión:* 1.1
-*Fecha:* 2026-03-31
+*Versión:* 1.2
+*Fecha:* 2026-04-01
 *Autor:* Barri
 
 '''
@@ -92,7 +92,6 @@ splitify/
 ├── frontend/                          ← Proyecto React (Vite)
 │   ├── package.json
 │   ├── vite.config.js
-│   ├── tailwind.config.js
 │   ├── index.html
 │   └── src/
 │       ├── main.jsx                   ← Punto de entrada React
@@ -100,35 +99,34 @@ splitify/
 │       ├── pages/                     ← Páginas/vistas
 │       │   ├── LoginPage.jsx
 │       │   ├── MainPage.jsx
-│       │   ├── PlaylistDetailPage.jsx
-│       │   └── CreatePlaylistPage.jsx
+│       │   └── PlaylistDetailPage.jsx
 │       ├── components/                ← Componentes reutilizables
+│       │   ├── SyncOverlay.jsx        ← Modal bloqueante de sincronización
+│       │   └── PlaylistCard.jsx       ← Card de playlist con portada
 │       └── services/                  ← Clientes HTTP para la API
 │           └── api.js
 ├── src/main/
 │   ├── java/io/jona/smusic/sorted_music/
 │   │   ├── SortedMusicApplication.java
-│   │   ├── config/                    ← Configuración (Security, Web, APIs)
+│   │   ├── config/                    ← Configuración (Security, Web)
 │   │   │   ├── SecurityConfig.java
 │   │   │   └── SpaController.java
 │   │   ├── controller/                ← REST Controllers
-│   │   │   ├── AuthController.java
 │   │   │   └── PlaylistController.java
 │   │   ├── service/                   ← Lógica de negocio
-│   │   │   ├── SpotifyService.java
-│   │   │   ├── ClassificationService.java
-│   │   │   └── PlaylistService.java
+│   │   │   └── SpotifyService.java
 │   │   ├── model/                     ← Entidades JPA
-│   │   │   ├── Song.java
-│   │   │   └── SplitifyPlaylist.java
+│   │   │   ├── Playlist.java         ← Playlist de Spotify (caché local)
+│   │   │   └── Song.java
 │   │   ├── dto/                       ← Objetos de transferencia
+│   │   │   ├── SpotifyDto.java       ← Records para deserializar Spotify API
+│   │   │   ├── PlaylistDto.java
+│   │   │   └── SongDto.java
 │   │   └── repository/               ← Repositorios JPA
-│   │       ├── SongRepository.java
-│   │       └── SplitifyPlaylistRepository.java
+│   │       ├── PlaylistRepository.java
+│   │       └── SongRepository.java
 │   └── resources/
 │       ├── application.properties
-│       ├── application-dev.properties
-│       ├── application-prod.properties
 │       └── static/                    ← Build de React (generado por Vite)
 └── src/test/
     └── java/...
@@ -159,23 +157,23 @@ El backend sigue una arquitectura en capas:
 === 5.3 Endpoints de la API REST
 
 |===
-|Método |Ruta |Descripción |RF
+|Método |Ruta |Descripción |RF |Estado
 
-|GET |`/api/auth/status` |Estado de la sesión del usuario |RF1
-|POST |`/api/auth/logout` |Cerrar sesión |RF1
-|POST |`/api/playlists/sync` |Sincronizar playlists del usuario desde Spotify (operación bloqueante) |RF1.1
-|GET |`/api/playlists` |Obtener todas las playlists del usuario (Spotify + Splitify) |RF2
-|GET |`/api/playlists/{id}/songs?page={n}&size={s}` |Obtener canciones de una playlist con metadatos (paginado) |RF2, RF3
-|POST |`/api/playlists/create/by-language` |Crear playlists ordenadas por idioma |RF4
-|POST |`/api/playlists/create/by-genre` |Crear playlists ordenadas por género |RF5
-|POST |`/api/playlists/create/by-release-date` |Crear playlist ordenada por fecha de lanzamiento |RF6
-|POST |`/api/playlists/create/combined` |Crear playlists de múltiples tipos genéricos a la vez |RF6.1
-|GET |`/api/playlists/available-filters?playlistIds={ids}` |Obtener idiomas, géneros y décadas disponibles en las playlists seleccionadas |RF7
-|POST |`/api/playlists/create/custom` |Crear playlist personalizada con filtros combinados |RF7
-|PUT |`/api/playlists/splitify/{id}/refresh` |Actualizar una playlist de Splitify |RF2
-|PUT |`/api/playlists/splitify/batch/refresh` |Actualizar múltiples playlists de Splitify |RF2.1
-|DELETE |`/api/playlists/splitify/{id}` |Eliminar una playlist de Splitify |RF2
-|DELETE |`/api/playlists/splitify/batch` |Eliminar múltiples playlists de Splitify |RF2.1
+|POST |`/api/auth/logout` |Cerrar sesión |RF1 |✅ Implementado
+|POST |`/api/playlists/sync` |Sincronizar playlists del usuario desde Spotify (operación bloqueante) |RF1.1 |✅ Implementado
+|GET |`/api/playlists` |Obtener todas las playlists del usuario |RF2 |✅ Implementado
+|GET |`/api/playlists/{id}` |Obtener una playlist por ID |RF2 |✅ Implementado
+|GET |`/api/playlists/{id}/songs` |Obtener canciones de una playlist con metadatos |RF2, RF3 |✅ Implementado (sin paginación aún)
+|POST |`/api/playlists/create/by-language` |Crear playlists ordenadas por idioma |RF4 |Pendiente
+|POST |`/api/playlists/create/by-genre` |Crear playlists ordenadas por género |RF5 |Pendiente
+|POST |`/api/playlists/create/by-release-date` |Crear playlist ordenada por fecha de lanzamiento |RF6 |Pendiente
+|POST |`/api/playlists/create/combined` |Crear playlists de múltiples tipos genéricos a la vez |RF6.1 |Pendiente
+|GET |`/api/playlists/available-filters?playlistIds={ids}` |Obtener idiomas, géneros y décadas disponibles en las playlists seleccionadas |RF7 |Pendiente
+|POST |`/api/playlists/create/custom` |Crear playlist personalizada con filtros combinados |RF7 |Pendiente
+|PUT |`/api/playlists/splitify/{id}/refresh` |Actualizar una playlist de Splitify |RF2 |Pendiente
+|PUT |`/api/playlists/splitify/batch/refresh` |Actualizar múltiples playlists de Splitify |RF2.1 |Pendiente
+|DELETE |`/api/playlists/splitify/{id}` |Eliminar una playlist de Splitify |RF2 |Pendiente
+|DELETE |`/api/playlists/splitify/batch` |Eliminar múltiples playlists de Splitify |RF2.1 |Pendiente
 |===
 
 '''
@@ -215,14 +213,26 @@ Todas las llamadas al backend se realizan mediante `fetch`, apuntando a `/api/**
 |===
 |Operación |Endpoint de Spotify |Uso en el sistema
 
-|Autenticación |OAuth 2.0 Authorization Code Flow |Inicio de sesión del usuario (RF1)
+|Autenticación |OAuth 2.0 Authorization Code Flow (con PKCE) |Inicio de sesión del usuario (RF1)
 |Obtener playlists |`GET /me/playlists` |Listar playlists del usuario (RF2)
 |Obtener Liked Songs |`GET /me/tracks` |Incluir Liked Songs como playlist seleccionable (RF2)
-|Obtener canciones |`GET /playlists/{id}/tracks` |Leer canciones para clasificación y filtrado (RF3)
+|Obtener canciones |`GET /playlists/{id}/items` |Leer canciones para clasificación y filtrado (RF3). Renombrado de `/tracks` a `/items` en feb 2026.
 |Crear playlist |`POST /users/{id}/playlists` |Generar nuevas playlists (RF4–RF7)
-|Agregar canciones |`POST /playlists/{id}/tracks` |Poblar las playlists creadas (RF4–RF7)
+|Agregar canciones |`POST /playlists/{id}/items` |Poblar las playlists creadas (RF4–RF7). Renombrado de `/tracks` a `/items` en feb 2026.
 |Eliminar playlist |`DELETE /playlists/{id}/followers` |Eliminar playlists de Splitify (RF2, RF2.1)
 |===
+
+==== 7.1.1 Restricciones del Modo Desarrollo de Spotify
+
+Desde febrero 2026, Spotify impone restricciones en apps con *Development Mode*:
+
+* El endpoint `GET /playlists/{id}/items` solo devuelve canciones de playlists que el usuario **creó o colabora**. Playlists de otros usuarios (que solo se siguen) devuelven 403 Forbidden.
+* El campo `track` dentro de cada item fue renombrado a `item` en la respuesta JSON.
+* El campo `tracks` en el objeto playlist fue renombrado a `items`.
+* Máximo 5 usuarios autorizados (deben agregarse manualmente en el Developer Dashboard).
+* Se requiere cuenta Premium para el propietario de la app.
+
+Para acceso completo (incluyendo playlists de otros usuarios), se debe solicitar *Extended Quota Mode* en el Spotify Developer Dashboard (requiere aprobación manual de Spotify).
 
 === 7.2 API de Clasificación (OpenAI)
 
@@ -244,30 +254,32 @@ Para optimizar costos y rendimiento, las clasificaciones se almacenan en caché 
 
 [source]
 ----
-Song
-├── spotifyId: String (PK)       ← ID único de Spotify
+Playlist                                  ← Playlists del usuario (caché local de Spotify)
+├── id: Long (PK, autogenerado)
+├── spotifyId: String                     ← ID de Spotify, o "liked_songs" para Liked Songs
+├── name: String
+├── imageUrl: String (nullable)           ← URL de la portada
+├── totalTracks: int                      ← Cantidad total de canciones
+└── userId: String                        ← ID del usuario de Spotify
+
+Song                                      ← Canciones de cada playlist
+├── id: Long (PK, autogenerado)
+├── spotifyId: String                     ← ID único de Spotify
 ├── name: String
 ├── artist: String
-├── releaseYear: Integer
-├── genre: String                ← Género clasificado (de los 10 definidos)
-└── language: String             ← Idioma clasificado
-
-SplitifyPlaylist
-├── id: Long (PK, autogenerado)
-├── spotifyPlaylistId: String    ← ID de la playlist en Spotify
-├── name: String
-├── type: Enum                   ← LANGUAGE, GENRE, RELEASE_DATE, CUSTOM
-├── userId: String               ← ID del usuario de Spotify propietario
-├── sourcePlaylistIds: String    ← IDs de las playlists origen (separados por coma)
-├── createdAt: Timestamp
-└── updatedAt: Timestamp
+├── releaseYear: Integer (nullable)       ← Pendiente: se llenará con ChatGPT
+├── genre: String (nullable)              ← Pendiente: se llenará con ChatGPT
+├── language: String (nullable)           ← Pendiente: se llenará con ChatGPT
+└── playlist_id: Long (FK → Playlist)     ← ManyToOne
 ----
+
+NOTE: La entidad `SplitifyPlaylist` (para playlists creadas por el sistema) se creará cuando se implementen RF4–RF7.
 
 === 8.2 Estrategia de Persistencia
 
-* La entidad `Song` funciona como caché de clasificaciones. Evita consultas repetidas a la API de ChatGPT para canciones ya clasificadas.
-* La entidad `SplitifyPlaylist` registra las playlists creadas por el sistema, permitiendo identificarlas en la sección inferior de la página principal y rastrear sus playlists origen para la funcionalidad de actualización.
-* Las playlists del usuario de Spotify no se persisten localmente; se obtienen en tiempo real desde la Spotify API.
+* La entidad `Playlist` persiste las playlists del usuario de Spotify localmente tras la sincronización. Al re-sincronizar, se eliminan los datos viejos y se reemplazan con datos frescos de Spotify.
+* La entidad `Song` almacena las primeras 10 canciones de cada playlist. Una misma canción de Spotify puede existir múltiples veces si aparece en varias playlists (relación ManyToOne simple). En el futuro, los campos `releaseYear`, `genre` y `language` se llenarán mediante ChatGPT API y funcionarán como caché de clasificaciones.
+* Liked Songs se almacena como una playlist con `spotifyId = "liked_songs"` e `imageUrl = null`.
 
 '''
 
@@ -302,18 +314,20 @@ Backend ──▶ [Sesión autenticada] ──▶ Frontend (acceso a /api/**)
 === 9.3 CSRF y CORS
 
 * *CORS:* En desarrollo, el proxy de Vite redirige las peticiones `/api/**` al backend, por lo que el navegador las ve como mismo origen y no se genera conflicto de CORS. En producción, frontend y backend se sirven desde el mismo JAR (mismo origen), por lo que CORS no aplica. No se requiere configuración adicional de CORS.
-* *CSRF:* Spring Security habilita protección CSRF por defecto. Para SPAs con autenticación basada en sesión, se configura Spring para exponer el token CSRF como cookie (`XSRF-TOKEN`). El frontend lee esta cookie y la envía como cabecera (`X-XSRF-TOKEN`) en cada petición que modifique estado (POST, PUT, DELETE).
+* *CSRF:* La protección CSRF está deshabilitada para las rutas `/api/**`. Dado que la SPA y la API se sirven desde el mismo origen (mismo JAR en producción, proxy en desarrollo) y la sesión usa cookies con `SameSite=Lax`, el riesgo de CSRF es mínimo. Esto simplifica la comunicación frontend-backend al no requerir envío de tokens CSRF.
 
 === 9.4 Permisos de Spotify (Scopes)
 
 |===
-|Scope |Necesario para
+|Scope |Necesario para |Estado
 
-|`playlist-read-private` |Leer playlists privadas del usuario
-|`playlist-read-collaborative` |Leer playlists colaborativas
-|`playlist-modify-public` |Crear y modificar playlists públicas
-|`playlist-modify-private` |Crear y modificar playlists privadas
-|`user-library-read` |Acceder a Liked Songs
+|`user-read-private` |Leer perfil del usuario |✅ Configurado
+|`user-read-email` |Leer email del usuario |✅ Configurado
+|`user-library-read` |Acceder a Liked Songs |✅ Configurado
+|`playlist-read-private` |Leer playlists privadas del usuario |✅ Configurado
+|`playlist-read-collaborative` |Leer playlists colaborativas |✅ Configurado
+|`playlist-modify-public` |Crear y modificar playlists públicas |Pendiente (RF4–RF7)
+|`playlist-modify-private` |Crear y modificar playlists privadas |Pendiente (RF4–RF7)
 |===
 
 '''
@@ -356,7 +370,7 @@ El archivo `frontend/vite.config.js` define:
 
 === 10.4 SPA Forwarding
 
-Un controller en Spring Boot reenvía todas las rutas no-API al `index.html`, permitiendo que React maneje la navegación del lado del cliente:
+Un controller en Spring Boot reenvía todas las rutas no-API al `index.html`, permitiendo que React maneje la navegación del lado del cliente. Se utilizan dos mappings: uno para rutas de un segmento (`/login`) y otro para rutas anidadas (`/playlist/123`), excluyendo rutas de assets, API y OAuth:
 
 [source,java]
 ----
@@ -364,6 +378,11 @@ Un controller en Spring Boot reenvía todas las rutas no-API al `index.html`, pe
 public class SpaController {
     @GetMapping(value = "/{path:[^\\.]*}")
     public String forward() {
+        return "forward:/index.html";
+    }
+
+    @GetMapping(value = "/{path:(?!api|assets|oauth2|login\\/oauth2)[^\\.]*}/**")
+    public String forwardNested() {
         return "forward:/index.html";
     }
 }
@@ -411,4 +430,5 @@ java -jar splitify.jar --spring.profiles.active=prod
 
 |2026-03-30 |1.0 |Versión inicial del documento. Stack: React (JS) + Tailwind CSS + React Router v7, Spring Boot, SQLite/PostgreSQL, OpenAI Java SDK (GPT-4.1-nano).
 |2026-03-31 |1.1 |Nuevo endpoint de sincronización (POST /api/playlists/sync). Paginación en endpoint de canciones. Nuevo endpoint de filtros disponibles (GET /api/playlists/available-filters). Idiomas dinámicos en ClassificationService. Pantalla de sincronización bloqueante y estado vacío en frontend. Carga por scroll en vista de detalle. Filtros dinámicos en creación personalizada.
+|2026-04-01 |1.2 |Implementación de sincronización de playlists (RF1.1). Nueva entidad Playlist para caché local de playlists de Spotify. Actualización de endpoints de Spotify API: /tracks renombrado a /items, campo track renombrado a item (cambio de Spotify feb 2026). Documentación de restricciones de Development Mode de Spotify. CSRF deshabilitado para /api/**. SpaController con soporte para rutas anidadas. Scopes actualizados con playlist-read-collaborative. Estructura del proyecto actualizada con archivos implementados. Estado de implementación añadido a endpoints y scopes.
 |===

@@ -10,4 +10,9 @@ public class SpaController {
     public String forward() {
         return "forward:/index.html";
     }
+
+    @GetMapping(value = "/{path:(?!api|assets|oauth2|login\\/oauth2)[^\\.]*}/**")
+    public String forwardNested() {
+        return "forward:/index.html";
+    }
 }
