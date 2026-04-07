@@ -24,6 +24,11 @@ export async function getPlaylistSongs(id) {
   return res.json();
 }
 
+export async function deletePlaylists() {
+  const res = await fetch(`${API_BASE}/playlists`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete playlists');
+}
+
 export async function logout() {
   await fetch(`${API_BASE}/auth/logout`, { method: 'POST' });
 }

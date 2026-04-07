@@ -12,6 +12,7 @@ import org.springframework.security.oauth2.client.OAuth2AuthorizedClient;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClient;
 
 import java.util.ArrayList;
@@ -59,6 +60,11 @@ public class SpotifyService {
             if (response == null || response.items() == null) break;
 
             for (SpotifyDto.PlaylistItem item : response.items()) {
+                boolean isOwner = item.owner() != null && userId.equals(item.owner().id());
+                if (!isOwner && !item.collaborative()) {
+                    continue;
+                }
+
                 Playlist playlist = Playlist.builder()
                         .spotifyId(item.id())
                         .name(item.name())
@@ -84,6 +90,15 @@ public class SpotifyService {
         return savedPlaylists.stream()
                 .map(this::toDto)
                 .collect(Collectors.toList());
+    }
+
+    @Transactional
+    public void deleteUserPlaylists(String userId) {
+        List<Playlist> playlists = playlistRepository.findByUserId(userId);
+        for (Playlist p : playlists) {
+            songRepository.deleteByPlaylistId(p.getId());
+        }
+        playlistRepository.deleteByUserId(userId);
     }
 
     public List<PlaylistDto> getUserPlaylists(String userId) {

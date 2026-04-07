@@ -97,11 +97,14 @@ npm run lint
 
 ## Key Domain Concepts (from REQUIREMENTS.adoc)
 
-- **Languages:** Dynamically detected via ChatGPT API (not a fixed list)
+- **Languages:** Dynamically detected via ChatGPT API (not a fixed list). A song can have multiple languages (multilingual songs).
 - **Genres (10):** Pop, Rock, Hip-Hop/Rap, Electrónica/Dance, R&B/Soul/Funk, Jazz/Blues, Clásica/Orquestal, Reggae/Ska/World, Country/Folk, Latina/Urbano
+- **Artists:** Dynamically discovered from playlists. A song can have multiple artists (collaborations).
 - **Eras:** by decade (80s, 90s, etc.)
-- Filtering supports combinations of language + genre + era
-- Song metadata: ID, name, artist, release year, genre, language (genre and language via ChatGPT API — not yet implemented)
+- Filtering supports combinations of language + genre + artist + era
+- Filtering is inclusive on multi-value fields: a song matching any of the selected artists/languages is included
+- Song metadata: ID, name, artists (list), release year, genre, languages (list). Genre and languages via ChatGPT API — not yet implemented.
+- Playlist entity stores aggregate fields (languages, genres, artists, decades) as JSON arrays for dynamic filter display
 
 ## Spotify API Notes
 

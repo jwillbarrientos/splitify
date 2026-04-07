@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Music, Music2, LogOut, Sparkles, RefreshCw, FolderOpen } from 'lucide-react'
-import { getPlaylists, syncPlaylists, logout } from '../services/api'
+import { Music, Music2, LogOut, Sparkles, RefreshCw, FolderOpen, Trash2, CheckCheck } from 'lucide-react'
+import { getPlaylists, syncPlaylists, deletePlaylists, logout } from '../services/api'
 import SyncOverlay from '../components/SyncOverlay'
 import PlaylistCard from '../components/PlaylistCard'
+import OrganizeModal from '../components/OrganizeModal'
 
 function EmptyState({ icon: Icon, title, description, buttonLabel, buttonIcon: BtnIcon, onButtonClick }) {
   return (
@@ -31,6 +32,8 @@ function MainPage() {
   const [playlists, setPlaylists] = useState([])
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
+  const [selectedIds, setSelectedIds] = useState(new Set())
+  const [showOrganizeModal, setShowOrganizeModal] = useState(false)
 
   useEffect(() => {
     getPlaylists()
@@ -44,10 +47,21 @@ function MainPage() {
     try {
       const data = await syncPlaylists()
       setPlaylists(data)
+      setSelectedIds(new Set())
     } catch (err) {
       console.error('Error syncing playlists:', err)
     } finally {
       setSyncing(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    try {
+      await deletePlaylists()
+      setPlaylists([])
+      setSelectedIds(new Set())
+    } catch (err) {
+      console.error('Error deleting playlists:', err)
     }
   }
 
@@ -56,9 +70,35 @@ function MainPage() {
     navigate('/login')
   }
 
+  const toggleSelect = (id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+      return next
+    })
+  }
+
+  const handleSelectAll = () => {
+    if (selectedIds.size === playlists.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(playlists.map(p => p.id)))
+    }
+  }
+
+  const selectedCount = selectedIds.size
+
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-white">
       <SyncOverlay visible={syncing} />
+      <OrganizeModal
+        visible={showOrganizeModal}
+        onClose={() => setShowOrganizeModal(false)}
+      />
 
       {/* Header */}
       <header className="flex h-16 items-center justify-between border-b border-zinc-800 px-6">
@@ -94,17 +134,40 @@ function MainPage() {
             </div>
             <div className="flex items-center gap-3">
               {playlists.length > 0 && (
-                <button
-                  onClick={handleSync}
-                  className="flex items-center gap-2 rounded-lg border border-[#27272A] bg-[#0A0A0A] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[#27272A]"
-                >
-                  <RefreshCw size={16} />
-                  Re-sincronizar
-                </button>
+                <>
+                  <button
+                    onClick={handleDelete}
+                    className="flex items-center gap-2 rounded-lg border border-red-900/50 bg-[#0A0A0A] px-4 py-2.5 text-sm font-medium text-red-400 transition hover:bg-red-950/30"
+                  >
+                    <Trash2 size={16} />
+                    Borrar datos
+                  </button>
+                  <button
+                    onClick={handleSync}
+                    className="flex items-center gap-2 rounded-lg bg-green-500 px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-green-600"
+                  >
+                    <RefreshCw size={16} />
+                    Re-sincronizar
+                  </button>
+                  <button
+                    onClick={handleSelectAll}
+                    className="flex items-center gap-2 rounded-lg border border-[#27272A] bg-[#0A0A0A] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[#27272A]"
+                  >
+                    <CheckCheck size={16} />
+                    Seleccionar todo
+                  </button>
+                </>
               )}
-              <button className="flex items-center gap-2 rounded-lg bg-gradient-to-r from-green-500 to-blue-500 px-4 py-2.5 text-sm font-semibold text-black opacity-40">
+              <button
+                onClick={() => selectedCount > 0 && setShowOrganizeModal(true)}
+                className={`flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition ${
+                  selectedCount > 0
+                    ? 'bg-gradient-to-r from-green-500 to-blue-500 text-black hover:opacity-90 cursor-pointer'
+                    : 'bg-gradient-to-r from-green-500 to-blue-500 text-black opacity-40 cursor-not-allowed'
+                }`}
+              >
                 <Sparkles size={16} />
-                Organizar (0)
+                Organizar ({selectedCount})
               </button>
             </div>
           </div>
@@ -119,11 +182,13 @@ function MainPage() {
               onButtonClick={handleSync}
             />
           ) : (
-            <div className="grid grid-cols-2 gap-5 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+            <div className="grid gap-5" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))' }}>
               {playlists.map(playlist => (
                 <PlaylistCard
                   key={playlist.id}
                   playlist={playlist}
+                  selected={selectedIds.has(playlist.id)}
+                  onToggleSelect={() => toggleSelect(playlist.id)}
                   onViewDetails={() => navigate(`/playlist/${playlist.id}`, { state: { playlist } })}
                 />
               ))}

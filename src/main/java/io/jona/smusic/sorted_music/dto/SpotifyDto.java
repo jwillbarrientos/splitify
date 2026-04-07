@@ -13,7 +13,11 @@ public class SpotifyDto {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record PlaylistItem(String id, String name, List<Image> images,
-                               @JsonAlias("items") TracksRef tracks) {}
+                               @JsonAlias("items") TracksRef tracks,
+                               Owner owner, boolean collaborative) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Owner(String id) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Image(String url) {}

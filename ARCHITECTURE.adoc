@@ -2,8 +2,8 @@
 
 == Splitify
 
-*Versión:* 1.2
-*Fecha:* 2026-04-01
+*Versión:* 1.3
+*Fecha:* 2026-04-07
 *Autor:* Barri
 
 '''
@@ -168,7 +168,7 @@ El backend sigue una arquitectura en capas:
 |POST |`/api/playlists/create/by-genre` |Crear playlists ordenadas por género |RF5 |Pendiente
 |POST |`/api/playlists/create/by-release-date` |Crear playlist ordenada por fecha de lanzamiento |RF6 |Pendiente
 |POST |`/api/playlists/create/combined` |Crear playlists de múltiples tipos genéricos a la vez |RF6.1 |Pendiente
-|GET |`/api/playlists/available-filters?playlistIds={ids}` |Obtener idiomas, géneros y décadas disponibles en las playlists seleccionadas |RF7 |Pendiente
+|GET |`/api/playlists/available-filters?playlistIds={ids}` |Obtener idiomas, géneros, artistas y décadas disponibles en las playlists seleccionadas |RF7 |Pendiente
 |POST |`/api/playlists/create/custom` |Crear playlist personalizada con filtros combinados |RF7 |Pendiente
 |PUT |`/api/playlists/splitify/{id}/refresh` |Actualizar una playlist de Splitify |RF2 |Pendiente
 |PUT |`/api/playlists/splitify/batch/refresh` |Actualizar múltiples playlists de Splitify |RF2.1 |Pendiente
@@ -193,7 +193,7 @@ El frontend es una Single Page Application con navegación del lado del cliente 
 |Principal |`/` |Estado vacío con botón "Sincronizar Playlists" si no hay playlists sincronizadas. Una vez sincronizadas: sección superior (playlists del usuario con selección) y sección inferior (playlists de Splitify con acciones individuales y en lote)
 |Sincronizando |`/` (modal bloqueante) |Pantalla bloqueante que se muestra durante la sincronización de playlists, impidiendo cualquier interacción
 |Detalle de playlist |`/playlist/:id` |Lista de canciones con metadatos (nombre, artista, año, género, idioma) con carga paginada por scroll (infinite scroll)
-|Crear playlist personalizada |`/create` |Formulario con filtros dinámicos de idioma, género y época. Solo muestra los filtros correspondientes a idiomas, géneros y décadas presentes en las canciones de las playlists seleccionadas (RF7)
+|Crear playlist personalizada |`/create` |Formulario con filtros dinámicos de idioma, género, artista y época. Solo muestra los filtros correspondientes a idiomas, géneros, artistas y décadas presentes en las canciones de las playlists seleccionadas (RF7)
 |===
 
 === 6.3 Estilos
@@ -242,7 +242,7 @@ El servicio envía el nombre y artista de cada canción para obtener:
 
 * *Año original de lanzamiento:* se solicita a ChatGPT en lugar de usar la fecha de Spotify, ya que Spotify puede devolver la fecha de una reedición o remasterización en vez de la del lanzamiento original.
 * *Género:* clasificado en una de las 10 categorías definidas en el SRS (sección 3.2).
-* *Idioma:* detectado dinámicamente sin limitarse a un catálogo fijo. ChatGPT identifica el idioma exacto de la canción (ej: español, coreano, tailandés, catalán). Las canciones instrumentales se clasifican como "Sin letra".
+* *Idioma(s):* detectados dinámicamente sin limitarse a un catálogo fijo. ChatGPT identifica el/los idioma(s) de la canción. Una canción puede tener múltiples idiomas si se canta en más de uno (ej: una canción con partes en inglés y español devuelve ambos idiomas). Las canciones instrumentales se clasifican como "Sin letra".
 
 Para optimizar costos y rendimiento, las clasificaciones se almacenan en caché en la base de datos. Si una canción ya fue clasificada previamente, no se consulta la API nuevamente.
 
@@ -260,16 +260,20 @@ Playlist                                  ← Playlists del usuario (caché loca
 ├── name: String
 ├── imageUrl: String (nullable)           ← URL de la portada
 ├── totalTracks: int                      ← Cantidad total de canciones
-└── userId: String                        ← ID del usuario de Spotify
+├── userId: String                        ← ID del usuario de Spotify
+├── languages: String (JSON array)        ← Idiomas presentes en la playlist (agregado de sus canciones)
+├── genres: String (JSON array)           ← Géneros presentes en la playlist (agregado de sus canciones)
+├── artists: String (JSON array)          ← Artistas presentes en la playlist (agregado de sus canciones)
+└── decades: String (JSON array)          ← Décadas presentes en la playlist (agregado de sus canciones)
 
 Song                                      ← Canciones de cada playlist
 ├── id: Long (PK, autogenerado)
 ├── spotifyId: String                     ← ID único de Spotify
 ├── name: String
-├── artist: String
+├── artists: String (JSON array)          ← Lista de artistas (soporta colaboraciones)
 ├── releaseYear: Integer (nullable)       ← Pendiente: se llenará con ChatGPT
 ├── genre: String (nullable)              ← Pendiente: se llenará con ChatGPT
-├── language: String (nullable)           ← Pendiente: se llenará con ChatGPT
+├── languages: String (JSON array, nullable) ← Lista de idiomas (soporta canciones multilingües). Pendiente: se llenará con ChatGPT
 └── playlist_id: Long (FK → Playlist)     ← ManyToOne
 ----
 
@@ -278,7 +282,8 @@ NOTE: La entidad `SplitifyPlaylist` (para playlists creadas por el sistema) se c
 === 8.2 Estrategia de Persistencia
 
 * La entidad `Playlist` persiste las playlists del usuario de Spotify localmente tras la sincronización. Al re-sincronizar, se eliminan los datos viejos y se reemplazan con datos frescos de Spotify.
-* La entidad `Song` almacena las primeras 10 canciones de cada playlist. Una misma canción de Spotify puede existir múltiples veces si aparece en varias playlists (relación ManyToOne simple). En el futuro, los campos `releaseYear`, `genre` y `language` se llenarán mediante ChatGPT API y funcionarán como caché de clasificaciones.
+* La entidad `Song` almacena las primeras 10 canciones de cada playlist. Una misma canción de Spotify puede existir múltiples veces si aparece en varias playlists (relación ManyToOne simple). Los campos `artists` y `languages` son JSON arrays (almacenados como String) para soportar colaboraciones y canciones multilingües. En el futuro, los campos `releaseYear`, `genre` y `languages` se llenarán mediante ChatGPT API y funcionarán como caché de clasificaciones.
+* La entidad `Playlist` incluye campos agregados (`languages`, `genres`, `artists`, `decades`) almacenados como JSON arrays. Estos campos se calculan a partir de las canciones clasificadas de la playlist y permiten mostrar dinámicamente los filtros disponibles en la creación personalizada (RF7) sin necesidad de consultar todas las canciones cada vez.
 * Liked Songs se almacena como una playlist con `spotifyId = "liked_songs"` e `imageUrl = null`.
 
 '''
@@ -431,4 +436,5 @@ java -jar splitify.jar --spring.profiles.active=prod
 |2026-03-30 |1.0 |Versión inicial del documento. Stack: React (JS) + Tailwind CSS + React Router v7, Spring Boot, SQLite/PostgreSQL, OpenAI Java SDK (GPT-4.1-nano).
 |2026-03-31 |1.1 |Nuevo endpoint de sincronización (POST /api/playlists/sync). Paginación en endpoint de canciones. Nuevo endpoint de filtros disponibles (GET /api/playlists/available-filters). Idiomas dinámicos en ClassificationService. Pantalla de sincronización bloqueante y estado vacío en frontend. Carga por scroll en vista de detalle. Filtros dinámicos en creación personalizada.
 |2026-04-01 |1.2 |Implementación de sincronización de playlists (RF1.1). Nueva entidad Playlist para caché local de playlists de Spotify. Actualización de endpoints de Spotify API: /tracks renombrado a /items, campo track renombrado a item (cambio de Spotify feb 2026). Documentación de restricciones de Development Mode de Spotify. CSRF deshabilitado para /api/**. SpaController con soporte para rutas anidadas. Scopes actualizados con playlist-read-collaborative. Estructura del proyecto actualizada con archivos implementados. Estado de implementación añadido a endpoints y scopes.
+|2026-04-07 |1.3 |Campos multi-valor en Song: `artist` → `artists` (JSON array, soporta colaboraciones), `language` → `languages` (JSON array, soporta canciones multilingües). Nuevos campos agregados en Playlist: `languages`, `genres`, `artists`, `decades` (JSON arrays) para filtros dinámicos. Endpoint available-filters actualizado para incluir artistas. Página de creación personalizada actualizada con filtro de artista. Estrategia de persistencia actualizada con JSON arrays y campos agregados.
 |===
