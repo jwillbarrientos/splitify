@@ -53,4 +53,29 @@ public class PlaylistController {
                         s.getReleaseYear(), s.getGenre(), s.getLanguage()))
                 .toList();
     }
+
+    @PostMapping("/test")
+    public PlaylistDto createTestPlaylist(OAuth2AuthenticationToken authentication,
+                                          @RequestBody List<Long> playlistIds) {
+        return spotifyService.createTestPlaylist(authentication, playlistIds);
+    }
+
+    @GetMapping("/splitify")
+    public List<PlaylistDto> getSplitifyPlaylists(OAuth2AuthenticationToken authentication) {
+        return spotifyService.getSplitifyPlaylists(authentication.getName());
+    }
+
+    @DeleteMapping("/splitify/{id}")
+    public ResponseEntity<Void> deleteSplitifyPlaylist(@PathVariable Long id,
+                                                        OAuth2AuthenticationToken authentication) {
+        spotifyService.deleteSplitifyPlaylist(authentication, id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/splitify")
+    public ResponseEntity<Void> deleteSplitifyPlaylists(@RequestBody List<Long> ids,
+                                                         OAuth2AuthenticationToken authentication) {
+        spotifyService.deleteSplitifyPlaylists(authentication, ids);
+        return ResponseEntity.noContent().build();
+    }
 }

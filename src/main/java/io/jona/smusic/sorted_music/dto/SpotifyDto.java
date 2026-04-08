@@ -39,4 +39,7 @@ public class SpotifyDto {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record LikedTracksResponse(List<TrackWrapper> items, int total) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record CreatePlaylistResponse(String id, String name) {}
 }

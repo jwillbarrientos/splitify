@@ -16,7 +16,9 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClient;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -37,12 +39,17 @@ public class SpotifyService {
                 .defaultHeader("Authorization", "Bearer " + accessToken)
                 .build();
 
-        // Borrar datos viejos del usuario
-        List<Playlist> oldPlaylists = playlistRepository.findByUserId(userId);
+        // Borrar datos viejos del usuario (solo playlists sincronizadas, no las de Splitify)
+        List<Playlist> oldPlaylists = playlistRepository.findByUserIdAndSplitify(userId, false);
         for (Playlist old : oldPlaylists) {
             songRepository.deleteByPlaylistId(old.getId());
         }
-        playlistRepository.deleteByUserId(userId);
+        playlistRepository.deleteAll(oldPlaylists);
+
+        // Obtener los spotifyIds de playlists de Splitify para excluirlas del sync
+        List<String> splitifySpotifyIds = playlistRepository.findByUserIdAndSplitify(userId, true).stream()
+                .map(Playlist::getSpotifyId)
+                .toList();
 
         List<Playlist> savedPlaylists = new ArrayList<>();
 
@@ -62,6 +69,11 @@ public class SpotifyService {
             for (SpotifyDto.PlaylistItem item : response.items()) {
                 boolean isOwner = item.owner() != null && userId.equals(item.owner().id());
                 if (!isOwner && !item.collaborative()) {
+                    continue;
+                }
+
+                // Saltar playlists que fueron creadas por Splitify
+                if (splitifySpotifyIds.contains(item.id())) {
                     continue;
                 }
 
@@ -94,17 +106,134 @@ public class SpotifyService {
 
     @Transactional
     public void deleteUserPlaylists(String userId) {
-        List<Playlist> playlists = playlistRepository.findByUserId(userId);
+        List<Playlist> playlists = playlistRepository.findByUserIdAndSplitify(userId, false);
         for (Playlist p : playlists) {
             songRepository.deleteByPlaylistId(p.getId());
         }
-        playlistRepository.deleteByUserId(userId);
+        playlistRepository.deleteAll(playlists);
     }
 
     public List<PlaylistDto> getUserPlaylists(String userId) {
-        return playlistRepository.findByUserId(userId).stream()
+        return playlistRepository.findByUserIdAndSplitify(userId, false).stream()
                 .map(this::toDto)
                 .collect(Collectors.toList());
+    }
+
+    public List<PlaylistDto> getSplitifyPlaylists(String userId) {
+        return playlistRepository.findByUserIdAndSplitify(userId, true).stream()
+                .map(this::toDto)
+                .collect(Collectors.toList());
+    }
+
+    public PlaylistDto createTestPlaylist(OAuth2AuthenticationToken authentication, List<Long> playlistIds) {
+        String accessToken = getAccessToken(authentication);
+        String userId = authentication.getName();
+
+        RestClient restClient = RestClient.builder()
+                .baseUrl("https://api.spotify.com/v1")
+                .defaultHeader("Authorization", "Bearer " + accessToken)
+                .build();
+
+        // Obtener canciones de las playlists seleccionadas y elegir 2 al azar
+        List<Song> allSongs = new ArrayList<>();
+        for (Long playlistId : playlistIds) {
+            allSongs.addAll(songRepository.findByPlaylistId(playlistId));
+        }
+
+        Collections.shuffle(allSongs);
+        List<Song> picked = allSongs.subList(0, Math.min(2, allSongs.size()));
+
+        // Crear playlist en Spotify (endpoint actualizado Feb 2026)
+        String createBody = "{\"name\":\"Splitify Test\",\"public\":false,\"description\":\"Playlist de prueba creada por Splitify\"}";
+
+        SpotifyDto.CreatePlaylistResponse created = restClient.post()
+                .uri("/me/playlists")
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .body(createBody)
+                .retrieve()
+                .body(SpotifyDto.CreatePlaylistResponse.class);
+
+        // Agregar canciones (endpoint actualizado Feb 2026: /tracks -> /items)
+        List<String> uris = picked.stream()
+                .map(s -> "spotify:track:" + s.getSpotifyId())
+                .toList();
+
+        String addTracksBody = "{\"uris\":" + uris.stream()
+                .map(u -> "\"" + u + "\"")
+                .collect(Collectors.joining(",", "[", "]")) + "}";
+
+        restClient.post()
+                .uri("/playlists/{playlistId}/items", created.id())
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .body(addTracksBody)
+                .retrieve()
+                .toBodilessEntity();
+
+        // Guardar en BD como playlist de Splitify
+        Playlist playlist = Playlist.builder()
+                .spotifyId(created.id())
+                .name("Splitify Test")
+                .totalTracks(picked.size())
+                .userId(userId)
+                .splitify(true)
+                .build();
+        playlist = playlistRepository.save(playlist);
+
+        for (Song s : picked) {
+            songRepository.save(Song.builder()
+                    .spotifyId(s.getSpotifyId())
+                    .name(s.getName())
+                    .artist(s.getArtist())
+                    .playlist(playlist)
+                    .build());
+        }
+
+        return toDto(playlist);
+    }
+
+    @Transactional
+    public void deleteSplitifyPlaylist(OAuth2AuthenticationToken authentication, Long id) {
+        String userId = authentication.getName();
+        Playlist playlist = playlistRepository.findById(id)
+                .filter(p -> p.getUserId().equals(userId) && p.isSplitify())
+                .orElseThrow(() -> new RuntimeException("Playlist not found"));
+
+        // Eliminar de Spotify (DELETE /me/library con URI de la playlist)
+        unfollowPlaylistOnSpotify(authentication, playlist.getSpotifyId());
+
+        songRepository.deleteByPlaylistId(playlist.getId());
+        playlistRepository.deleteById(playlist.getId());
+    }
+
+    @Transactional
+    public void deleteSplitifyPlaylists(OAuth2AuthenticationToken authentication, List<Long> ids) {
+        String userId = authentication.getName();
+        for (Long id : ids) {
+            playlistRepository.findById(id)
+                    .filter(p -> p.getUserId().equals(userId) && p.isSplitify())
+                    .ifPresent(p -> {
+                        unfollowPlaylistOnSpotify(authentication, p.getSpotifyId());
+                        songRepository.deleteByPlaylistId(p.getId());
+                        playlistRepository.deleteById(p.getId());
+                    });
+        }
+    }
+
+    private void unfollowPlaylistOnSpotify(OAuth2AuthenticationToken authentication, String spotifyPlaylistId) {
+        String accessToken = getAccessToken(authentication);
+
+        try {
+            java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
+                    .uri(java.net.URI.create("https://api.spotify.com/v1/playlists/" + spotifyPlaylistId + "/followers"))
+                    .header("Authorization", "Bearer " + accessToken)
+                    .DELETE()
+                    .build();
+            java.net.http.HttpResponse<String> response = java.net.http.HttpClient.newHttpClient()
+                    .send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
+            log.info("Unfollow playlist '{}' response: {} {}", spotifyPlaylistId, response.statusCode(), response.body());
+        } catch (Exception e) {
+            log.warn("Could not unfollow playlist '{}' on Spotify: {}", spotifyPlaylistId, e.getMessage());
+        }
     }
 
     private Playlist syncLikedSongs(RestClient restClient, String userId) {
@@ -168,6 +297,10 @@ public class SpotifyService {
                 authentication.getAuthorizedClientRegistrationId(),
                 authentication.getName()
         );
+        if (client == null) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.UNAUTHORIZED, "Sesión de Spotify expirada");
+        }
         return client.getAccessToken().getTokenValue();
     }
 

@@ -10,6 +10,8 @@ public interface PlaylistRepository extends JpaRepository<Playlist, Long> {
 
     List<Playlist> findByUserId(String userId);
 
+    List<Playlist> findByUserIdAndSplitify(String userId, boolean splitify);
+
     @Transactional
     void deleteByUserId(String userId);
 }

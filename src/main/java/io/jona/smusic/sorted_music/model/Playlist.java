@@ -24,4 +24,7 @@ public class Playlist {
     private int totalTracks;
 
     private String userId;
+
+    @Builder.Default
+    private boolean splitify = false;
 }

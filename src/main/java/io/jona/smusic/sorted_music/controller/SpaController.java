@@ -1,4 +1,4 @@
-package io.jona.smusic.sorted_music.config;
+package io.jona.smusic.sorted_music.controller;
 
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;

@@ -102,17 +102,19 @@ splitify/
 │       │   └── PlaylistDetailPage.jsx
 │       ├── components/                ← Componentes reutilizables
 │       │   ├── SyncOverlay.jsx        ← Modal bloqueante de sincronización
-│       │   └── PlaylistCard.jsx       ← Card de playlist con portada
+│       │   ├── PlaylistCard.jsx       ← Card de playlist con portada
+│       │   ├── SplitifyCard.jsx       ← Card de playlist Splitify (con botones Actualizar/Eliminar)
+│       │   └── OrganizeModal.jsx      ← Modal de organización con opciones y botón test
 │       └── services/                  ← Clientes HTTP para la API
 │           └── api.js
 ├── src/main/
 │   ├── java/io/jona/smusic/sorted_music/
 │   │   ├── SortedMusicApplication.java
-│   │   ├── config/                    ← Configuración (Security, Web)
-│   │   │   ├── SecurityConfig.java
+│   │   ├── config/                    ← Configuración (Security)
+│   │   │   └── SecurityConfig.java
+│   │   ├── controller/                ← Controllers (REST + Web)
+│   │   │   ├── PlaylistController.java
 │   │   │   └── SpaController.java
-│   │   ├── controller/                ← REST Controllers
-│   │   │   └── PlaylistController.java
 │   │   ├── service/                   ← Lógica de negocio
 │   │   │   └── SpotifyService.java
 │   │   ├── model/                     ← Entidades JPA
@@ -172,8 +174,10 @@ El backend sigue una arquitectura en capas:
 |POST |`/api/playlists/create/custom` |Crear playlist personalizada con filtros combinados |RF7 |Pendiente
 |PUT |`/api/playlists/splitify/{id}/refresh` |Actualizar una playlist de Splitify |RF2 |Pendiente
 |PUT |`/api/playlists/splitify/batch/refresh` |Actualizar múltiples playlists de Splitify |RF2.1 |Pendiente
-|DELETE |`/api/playlists/splitify/{id}` |Eliminar una playlist de Splitify |RF2 |Pendiente
-|DELETE |`/api/playlists/splitify/batch` |Eliminar múltiples playlists de Splitify |RF2.1 |Pendiente
+|DELETE |`/api/playlists/splitify/{id}` |Eliminar una playlist de Splitify |RF2 |✅ Implementado
+|DELETE |`/api/playlists/splitify` |Eliminar múltiples playlists de Splitify |RF2.1 |✅ Implementado
+|GET |`/api/playlists/splitify` |Obtener playlists creadas por Splitify |RF2 |✅ Implementado
+|POST |`/api/playlists/test` |Crear playlist de prueba con 2 canciones al azar (temporal) | |✅ Implementado
 |===
 
 '''
@@ -217,9 +221,9 @@ Todas las llamadas al backend se realizan mediante `fetch`, apuntando a `/api/**
 |Obtener playlists |`GET /me/playlists` |Listar playlists del usuario (RF2)
 |Obtener Liked Songs |`GET /me/tracks` |Incluir Liked Songs como playlist seleccionable (RF2)
 |Obtener canciones |`GET /playlists/{id}/items` |Leer canciones para clasificación y filtrado (RF3). Renombrado de `/tracks` a `/items` en feb 2026.
-|Crear playlist |`POST /users/{id}/playlists` |Generar nuevas playlists (RF4–RF7)
+|Crear playlist |`POST /me/playlists` |Generar nuevas playlists (RF4–RF7). Renombrado de `/users/{id}/playlists` a `/me/playlists` en feb 2026.
 |Agregar canciones |`POST /playlists/{id}/items` |Poblar las playlists creadas (RF4–RF7). Renombrado de `/tracks` a `/items` en feb 2026.
-|Eliminar playlist |`DELETE /playlists/{id}/followers` |Eliminar playlists de Splitify (RF2, RF2.1)
+|Eliminar playlist |`DELETE /me/library` (con URI `spotify:playlist:{id}` en body) |Eliminar playlists de Splitify (RF2, RF2.1). Renombrado de `DELETE /playlists/{id}/followers` en feb 2026.
 |===
 
 ==== 7.1.1 Restricciones del Modo Desarrollo de Spotify
@@ -227,6 +231,8 @@ Todas las llamadas al backend se realizan mediante `fetch`, apuntando a `/api/**
 Desde febrero 2026, Spotify impone restricciones en apps con *Development Mode*:
 
 * El endpoint `GET /playlists/{id}/items` solo devuelve canciones de playlists que el usuario **creó o colabora**. Playlists de otros usuarios (que solo se siguen) devuelven 403 Forbidden.
+* El endpoint `POST /users/{id}/playlists` fue reemplazado por `POST /me/playlists`.
+* El endpoint `POST /playlists/{id}/tracks` fue renombrado a `POST /playlists/{id}/items`.
 * El campo `track` dentro de cada item fue renombrado a `item` en la respuesta JSON.
 * El campo `tracks` en el objeto playlist fue renombrado a `items`.
 * Máximo 5 usuarios autorizados (deben agregarse manualmente en el Developer Dashboard).
@@ -261,6 +267,7 @@ Playlist                                  ← Playlists del usuario (caché loca
 ├── imageUrl: String (nullable)           ← URL de la portada
 ├── totalTracks: int                      ← Cantidad total de canciones
 ├── userId: String                        ← ID del usuario de Spotify
+├── splitify: boolean (default false)     ← true si fue creada por Splitify
 ├── languages: String (JSON array)        ← Idiomas presentes en la playlist (agregado de sus canciones)
 ├── genres: String (JSON array)           ← Géneros presentes en la playlist (agregado de sus canciones)
 ├── artists: String (JSON array)          ← Artistas presentes en la playlist (agregado de sus canciones)
@@ -331,8 +338,9 @@ Backend ──▶ [Sesión autenticada] ──▶ Frontend (acceso a /api/**)
 |`user-library-read` |Acceder a Liked Songs |✅ Configurado
 |`playlist-read-private` |Leer playlists privadas del usuario |✅ Configurado
 |`playlist-read-collaborative` |Leer playlists colaborativas |✅ Configurado
-|`playlist-modify-public` |Crear y modificar playlists públicas |Pendiente (RF4–RF7)
-|`playlist-modify-private` |Crear y modificar playlists privadas |Pendiente (RF4–RF7)
+|`playlist-modify-public` |Crear y modificar playlists públicas |✅ Configurado
+|`playlist-modify-private` |Crear y modificar playlists privadas |✅ Configurado
+|`user-library-modify` |Eliminar playlists de la biblioteca del usuario |✅ Configurado
 |===
 
 '''

@@ -72,7 +72,8 @@ npm run lint
 ### Backend
 - **Base package:** `io.jona.smusic.sorted_music`
 - **Entry point:** `SortedMusicApplication.java`
-- **Config package:** `config/` — `SpaController.java` (forwards non-API routes to `index.html`, supports nested routes), `SecurityConfig.java` (OAuth2 login, CSRF disabled for `/api/**`, logout endpoint)
+- **Config package:** `config/` — `SecurityConfig.java` (OAuth2 login, CSRF disabled for `/api/**`, logout endpoint)
+- **Controller:** `controller/SpaController.java` — forwards non-API routes to `index.html` (supports nested routes for React Router)
 - **Controller:** `controller/PlaylistController.java` — REST endpoints for sync, list, detail, songs
 - **Service:** `service/SpotifyService.java` — Spotify API communication, playlist/song persistence
 - **Models:** `model/Playlist.java`, `model/Song.java` — JPA entities with SQLite
@@ -85,7 +86,7 @@ npm run lint
 - **Entry point:** `src/main.jsx` (wraps App in `BrowserRouter`)
 - **Router:** `src/App.jsx` (routes: `/login`, `/`, `/playlist/:id`)
 - **Pages:** `src/pages/` — `LoginPage.jsx`, `MainPage.jsx`, `PlaylistDetailPage.jsx`
-- **Components:** `src/components/` — `SyncOverlay.jsx` (loading modal), `PlaylistCard.jsx` (playlist card)
+- **Components:** `src/components/` — `SyncOverlay.jsx` (loading modal), `PlaylistCard.jsx` (playlist card), `SplitifyCard.jsx` (splitify playlist card with update/delete buttons), `OrganizeModal.jsx` (organize options modal with test button)
 - **API clients:** `src/services/api.js` — fetch calls for sync, playlists, songs, logout
 - **Styles:** `src/index.css` — imports Tailwind CSS
 - **Build config:** `vite.config.js` — proxy, output dir, Tailwind plugin
@@ -109,7 +110,7 @@ npm run lint
 ## Spotify API Notes
 
 - **Development Mode restrictions:** App can only fetch tracks from playlists the user owns or collaborates on. Followed playlists return 403 on track endpoints. Extended Quota Mode needed for full access.
-- **Feb 2026 API changes:** Endpoints renamed from `/tracks` to `/items`. Response field `track` renamed to `item`. Field `tracks` in playlist objects renamed to `items`. DTOs use `@JsonAlias` to handle both old and new field names.
+- **Feb 2026 API changes:** Endpoints renamed from `/tracks` to `/items`. Response field `track` renamed to `item`. Field `tracks` in playlist objects renamed to `items`. DTOs use `@JsonAlias` to handle both old and new field names. `POST /users/{id}/playlists` replaced by `POST /me/playlists`. `POST /playlists/{id}/tracks` renamed to `POST /playlists/{id}/items`. `DELETE /playlists/{id}/followers` replaced by `DELETE /me/library` (with playlist URI in body). New scope `user-library-modify` required for deletions.
 
 ## Important Rules
 

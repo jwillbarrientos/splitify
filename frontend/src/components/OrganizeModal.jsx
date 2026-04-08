@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { X, Sparkles, Languages, Music, Calendar, SlidersHorizontal, Check } from 'lucide-react'
+import { X, Sparkles, Languages, Music, Calendar, SlidersHorizontal, Check, FlaskConical } from 'lucide-react'
+import { createTestPlaylist } from '../services/api'
 
 function Checkbox({ checked }) {
   return (
@@ -31,12 +32,13 @@ function OptionCard({ icon: Icon, title, description, checked, onToggle }) {
   )
 }
 
-function OrganizeModal({ visible, onClose }) {
+function OrganizeModal({ visible, onClose, selectedIds, onTestCreate }) {
   const [options, setOptions] = useState({
     idioma: false,
     genero: false,
     fecha: false,
   })
+  const [creatingTest, setCreatingTest] = useState(false)
 
   if (!visible) return null
 
@@ -45,6 +47,18 @@ function OrganizeModal({ visible, onClose }) {
   }
 
   const anySelected = options.idioma || options.genero || options.fecha
+
+  const handleTestCreate = async () => {
+    setCreatingTest(true)
+    try {
+      const newPlaylist = await createTestPlaylist(selectedIds)
+      onTestCreate(newPlaylist)
+    } catch (err) {
+      console.error('Error creating test playlist:', err)
+    } finally {
+      setCreatingTest(false)
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0A0A0A]/80">
@@ -97,6 +111,18 @@ function OrganizeModal({ visible, onClose }) {
           >
             <Sparkles size={16} />
             Crear Playlists
+          </button>
+
+          {/* Test button (temporal) */}
+          <button
+            onClick={handleTestCreate}
+            disabled={creatingTest}
+            className={`flex w-full items-center justify-center gap-2 rounded-lg border border-yellow-500/50 bg-yellow-500/10 px-5 py-2.5 text-sm font-semibold text-yellow-500 transition ${
+              creatingTest ? 'opacity-40 cursor-not-allowed' : 'hover:bg-yellow-500/20'
+            }`}
+          >
+            <FlaskConical size={16} />
+            {creatingTest ? 'Creando playlist de prueba...' : 'Test — Crear playlist con 2 canciones'}
           </button>
         </div>
 

@@ -10,6 +10,8 @@ Que solo traiga las playlists que yo hice y soy colaborador
 Agregar un indicativo de que la pagina esta cargando cuando aprietas la opcion de personalizado en crear una playlist ya que ese paso puede tardar
 Cuando resincronizar las musicas de spotify?
 
+que aparezca la foto de perfil y nombre de usuario en la esquina superior derecha
+
 lo siguiente es implementar la funcionalidad con chat gpt, luego que se pueda crear playlists
 
 - (2h)investigar si es realmente posible con los ultimos cambios de la api de spotify lo siguiente:

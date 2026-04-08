@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, useLocation, useNavigate } from 'react-router-dom'
-import { Music2, LogOut, ArrowLeft, Music } from 'lucide-react'
+import { Music2, LogOut, ArrowLeft, Music, Heart } from 'lucide-react'
 import { getPlaylist, getPlaylistSongs, logout } from '../services/api'
 
 function PlaylistDetailPage() {
@@ -80,6 +80,10 @@ function PlaylistDetailPage() {
                 alt={playlist.name}
                 className="h-[72px] w-[72px] rounded-xl object-cover"
               />
+            ) : playlist.spotifyId === 'liked_songs' ? (
+              <div className="flex h-[72px] w-[72px] items-center justify-center rounded-xl bg-gradient-to-br from-[#4838C7] via-[#8B6CCF] to-[#7EC8CA]">
+                <Heart size={32} fill="rgba(255,255,255,0.8)" stroke="none" />
+              </div>
             ) : (
               <div className="flex h-[72px] w-[72px] items-center justify-center rounded-xl bg-gradient-to-br from-purple-500 to-blue-500">
                 <Music size={32} className="text-white" />
