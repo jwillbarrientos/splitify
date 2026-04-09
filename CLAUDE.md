@@ -4,8 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Splitify is a web application that categorizes and organizes Spotify playlists by language, genre, and release era/decade.
-It uses Spotify OAuth for login, fetches user playlists (including Liked Songs), and leverages the ChatGPT API for genre classification.
+Splitify is a web application that categorizes and organizes Spotify playlists by language, genre, and artist.
+It uses Spotify OAuth for login, fetches user playlists (including Liked Songs), and leverages the ChatGPT API for genre and language classification.
 The project name in Gradle is "sorted-music".
 
 ## Build & Run Commands
@@ -75,18 +75,20 @@ npm run lint
 - **Config package:** `config/` — `SecurityConfig.java` (OAuth2 login, CSRF disabled for `/api/**`, logout endpoint)
 - **Controller:** `controller/SpaController.java` — forwards non-API routes to `index.html` (supports nested routes for React Router)
 - **Controller:** `controller/PlaylistController.java` — REST endpoints for sync, list, detail, songs
-- **Service:** `service/SpotifyService.java` — Spotify API communication, playlist/song persistence
+- **Controller:** `controller/UserController.java` — REST endpoint for user profile (`GET /api/user/me`)
+- **Service:** `service/SpotifyService.java` — Spotify API communication, playlist/song persistence, classification cache
+- **Service:** `service/ClassificationService.java` — ChatGPT API (genre/language classification)
 - **Models:** `model/Playlist.java`, `model/Song.java` — JPA entities with SQLite
-- **DTOs:** `dto/SpotifyDto.java` (Spotify API response records), `dto/PlaylistDto.java`, `dto/SongDto.java`
+- **DTOs:** `dto/SpotifyDto.java` (Spotify API response records), `dto/PlaylistDto.java`, `dto/SongDto.java`, `dto/UserProfileDto.java`
 - **Repositories:** `repository/PlaylistRepository.java`, `repository/SongRepository.java`
 - **Config file:** `src/main/resources/application.properties`
 - All REST endpoints go under `/api/**`
 
 ### Frontend (`frontend/`)
 - **Entry point:** `src/main.jsx` (wraps App in `BrowserRouter`)
-- **Router:** `src/App.jsx` (routes: `/login`, `/`, `/playlist/:id`)
+- **Router:** `src/App.jsx` (routes: `/login`, `/`, `/playlist/:id`; `AuthLayout` wraps authenticated routes with shared `Header`)
 - **Pages:** `src/pages/` — `LoginPage.jsx`, `MainPage.jsx`, `PlaylistDetailPage.jsx`
-- **Components:** `src/components/` — `SyncOverlay.jsx` (loading modal), `PlaylistCard.jsx` (playlist card), `SplitifyCard.jsx` (splitify playlist card with update/delete buttons), `OrganizeModal.jsx` (organize options modal with test button)
+- **Components:** `src/components/` — `Header.jsx` (shared header with logo, user profile, logout), `SyncOverlay.jsx` (loading modal), `PlaylistCard.jsx` (playlist card), `SplitifyCard.jsx` (splitify playlist card with update/delete buttons), `OrganizeModal.jsx` (organize options modal)
 - **API clients:** `src/services/api.js` — fetch calls for sync, playlists, songs, logout
 - **Styles:** `src/index.css` — imports Tailwind CSS
 - **Build config:** `vite.config.js` — proxy, output dir, Tailwind plugin
@@ -101,11 +103,10 @@ npm run lint
 - **Languages:** Dynamically detected via ChatGPT API (not a fixed list). A song can have multiple languages (multilingual songs).
 - **Genres (10):** Pop, Rock, Hip-Hop/Rap, Electrónica/Dance, R&B/Soul/Funk, Jazz/Blues, Clásica/Orquestal, Reggae/Ska/World, Country/Folk, Latina/Urbano
 - **Artists:** Dynamically discovered from playlists. A song can have multiple artists (collaborations).
-- **Eras:** by decade (80s, 90s, etc.)
-- Filtering supports combinations of language + genre + artist + era
+- Filtering supports combinations of language + genre + artist
 - Filtering is inclusive on multi-value fields: a song matching any of the selected artists/languages is included
-- Song metadata: ID, name, artists (list), release year, genre, languages (list). Genre and languages via ChatGPT API — not yet implemented.
-- Playlist entity stores aggregate fields (languages, genres, artists, decades) as JSON arrays for dynamic filter display
+- Song metadata: ID, name, artists (list), release year (from Spotify), genre, languages (list). Genre and languages via ChatGPT API.
+- Playlist entity stores aggregate fields (languages, genres, artists) as JSON arrays for dynamic filter display
 
 ## Spotify API Notes
 
@@ -122,6 +123,6 @@ npm run lint
 - Deployment target is Linode (not yet configured).
 - Spotify OAuth2 authentication is implemented and functional.
 - Playlist sync (RF1.1) is implemented: fetches playlists + first 10 songs per owned playlist.
-- ChatGPT classification (genre, language, release year) is not yet implemented — song detail columns show "—".
+- Song classification (RF3) is implemented: genre and language via ChatGPT (GPT-4.1-nano), release year from Spotify. Classifications are cached across re-syncs.
 - When testing via browser, use `http://127.0.0.1:8080` (not localhost:5173) since OAuth callback redirects to port 8080.
-- SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET env vars must be set (configured in IntelliJ run config).
+- SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, and OPENAI_API_KEY env vars must be set (configured in IntelliJ run config).

@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { X, Sparkles, Languages, Music, Calendar, SlidersHorizontal, Check, FlaskConical } from 'lucide-react'
-import { createTestPlaylist } from '../services/api'
+import { X, Sparkles, Languages, Music, Calendar, SlidersHorizontal, Check } from 'lucide-react'
+import { createOrganizedPlaylists } from '../services/api'
 
 function Checkbox({ checked }) {
   return (
@@ -32,13 +32,13 @@ function OptionCard({ icon: Icon, title, description, checked, onToggle }) {
   )
 }
 
-function OrganizeModal({ visible, onClose, selectedIds, onTestCreate }) {
+function OrganizeModal({ visible, onClose, selectedIds, onPlaylistsCreated }) {
   const [options, setOptions] = useState({
     idioma: false,
     genero: false,
     fecha: false,
   })
-  const [creatingTest, setCreatingTest] = useState(false)
+  const [creating, setCreating] = useState(false)
 
   if (!visible) return null
 
@@ -48,15 +48,17 @@ function OrganizeModal({ visible, onClose, selectedIds, onTestCreate }) {
 
   const anySelected = options.idioma || options.genero || options.fecha
 
-  const handleTestCreate = async () => {
-    setCreatingTest(true)
+  const handleCreate = async () => {
+    if (!anySelected || creating) return
+    setCreating(true)
     try {
-      const newPlaylist = await createTestPlaylist(selectedIds)
-      onTestCreate(newPlaylist)
+      const newPlaylists = await createOrganizedPlaylists(selectedIds, options)
+      onPlaylistsCreated(newPlaylists)
+      setOptions({ idioma: false, genero: false, fecha: false })
     } catch (err) {
-      console.error('Error creating test playlist:', err)
+      console.error('Error creating playlists:', err)
     } finally {
-      setCreatingTest(false)
+      setCreating(false)
     }
   }
 
@@ -98,32 +100,22 @@ function OrganizeModal({ visible, onClose, selectedIds, onTestCreate }) {
           <OptionCard
             icon={Calendar}
             title="Por Fecha de Lanzamiento"
-            description="Crea una playlist separada por cada período encontrado en tus selecciones por año/década"
+            description="Crea una playlist con todas las canciones ordenadas por fecha de lanzamiento"
             checked={options.fecha}
             onToggle={() => toggleOption('fecha')}
           />
-
           {/* Crear Playlists button */}
           <button
+            onClick={handleCreate}
+            disabled={!anySelected || creating}
             className={`flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-green-500 to-blue-500 px-5 py-2.5 text-sm font-semibold text-black transition ${
-              anySelected ? 'hover:opacity-90' : 'opacity-40 cursor-not-allowed'
+              anySelected && !creating ? 'hover:opacity-90' : 'opacity-40 cursor-not-allowed'
             }`}
           >
             <Sparkles size={16} />
-            Crear Playlists
+            {creating ? 'Creando playlists...' : 'Crear Playlists'}
           </button>
 
-          {/* Test button (temporal) */}
-          <button
-            onClick={handleTestCreate}
-            disabled={creatingTest}
-            className={`flex w-full items-center justify-center gap-2 rounded-lg border border-yellow-500/50 bg-yellow-500/10 px-5 py-2.5 text-sm font-semibold text-yellow-500 transition ${
-              creatingTest ? 'opacity-40 cursor-not-allowed' : 'hover:bg-yellow-500/20'
-            }`}
-          >
-            <FlaskConical size={16} />
-            {creatingTest ? 'Creando playlist de prueba...' : 'Test — Crear playlist con 2 canciones'}
-          </button>
         </div>
 
         {/* Separator */}
@@ -141,7 +133,7 @@ function OrganizeModal({ visible, onClose, selectedIds, onTestCreate }) {
               <span className="text-sm font-semibold text-white">Personalizado</span>
             </div>
             <p className="text-[13px] text-[#A1A1AA]">
-              Crea una playlist con criterios personalizados (Idioma, género, época)
+              Crea una playlist con criterios personalizados (Idioma, género, artista)
             </p>
           </div>
         </div>

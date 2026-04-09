@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useLocation, useNavigate } from 'react-router-dom'
-import { Music2, LogOut, ArrowLeft, Music, Heart } from 'lucide-react'
-import { getPlaylist, getPlaylistSongs, logout } from '../services/api'
+import { ArrowLeft, Music, Heart } from 'lucide-react'
+import { getPlaylist, getPlaylistSongs } from '../services/api'
 
 function PlaylistDetailPage() {
   const { id } = useParams()
@@ -30,38 +30,12 @@ function PlaylistDetailPage() {
     fetchData()
   }, [id])
 
-  const handleLogout = async () => {
-    await logout()
-    navigate('/login')
-  }
-
   if (loading && !playlist) {
     return <div className="min-h-screen bg-[#0A0A0A]" />
   }
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A] text-white">
-      {/* Header */}
-      <header className="flex h-16 items-center justify-between border-b border-zinc-800 px-6">
-        <div className="flex items-center gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-b from-green-500 to-blue-500">
-            <Music2 size={20} className="text-white" />
-          </div>
-          <span className="bg-gradient-to-r from-green-500 to-blue-500 bg-clip-text text-[22px] font-bold text-transparent">
-            Splitify
-          </span>
-        </div>
-        <button
-          onClick={handleLogout}
-          className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm text-zinc-400 transition hover:bg-zinc-800 hover:text-white"
-        >
-          <LogOut size={16} />
-          Cerrar sesión
-        </button>
-      </header>
-
-      {/* Content */}
-      <main className="flex flex-col gap-6 p-8">
+    <main className="flex flex-col gap-6 p-8">
         {/* Back button */}
         <button
           onClick={() => navigate('/')}
@@ -130,8 +104,7 @@ function PlaylistDetailPage() {
             </tbody>
           </table>
         </div>
-      </main>
-    </div>
+    </main>
   )
 }
 

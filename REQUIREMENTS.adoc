@@ -2,8 +2,8 @@
 
 == Splitify
 
-*Versión:* 1.3
-*Fecha:* 2026-04-07
+*Versión:* 1.8
+*Fecha:* 2026-04-09
 *Autor:* Barri
 
 '''
@@ -12,11 +12,11 @@
 
 === 1.1 Propósito
 
-Este documento describe los requerimientos funcionales y no funcionales del sistema *Splitify*, una aplicación web que permite a los usuarios categorizar y organizar sus canciones de Spotify por idioma, género musical y época/década de lanzamiento original.
+Este documento describe los requerimientos funcionales y no funcionales del sistema *Splitify*, una aplicación web que permite a los usuarios categorizar y organizar sus canciones de Spotify por idioma, género musical y artista.
 
 === 1.2 Alcance
 
-Splitify es una aplicación web que se integra con Spotify y utiliza IA en la categorizacion de musicas. Permite a los usuarios seleccionar playlists existentes (incluyendo Liked Songs) y generar nuevas playlists organizadas según criterios de idioma, género, artista y/o época.
+Splitify es una aplicación web que se integra con Spotify y utiliza IA en la categorizacion de musicas. Permite a los usuarios seleccionar playlists existentes (incluyendo Liked Songs) y generar nuevas playlists organizadas según criterios de idioma, género y/o artista.
 
 === 1.3 Definiciones y Acrónimos
 
@@ -39,7 +39,7 @@ Splitify actúa como intermediario entre el usuario y Spotify. No almacena músi
 
 === 2.2 Usuarios Objetivo
 
-Usuarios de Spotify que desean organizar automáticamente sus bibliotecas musicales según idioma, género o década sin hacerlo manualmente.
+Usuarios de Spotify que desean organizar automáticamente sus bibliotecas musicales según idioma, género o artista sin hacerlo manualmente.
 
 === 2.3 Restricciones
 
@@ -82,11 +82,7 @@ La clasificación de género se realiza mediante consultas a la API de ChatGPT, 
 
 ____
 
-=== 3.3 Épocas / Décadas
-
-Las canciones se clasifican por década según su año original de lanzamiento (ej: 80s, 90s, 2000s, 2010s, 2020s).
-
-=== 3.4 Artistas
+=== 3.3 Artistas
 
 Los artistas se obtienen directamente de la API de Spotify. Una canción puede tener múltiples artistas (colaboraciones), y todos se registran. No existe un catálogo fijo de artistas; se descubren dinámicamente a partir de las canciones de las playlists del usuario.
 
@@ -102,7 +98,8 @@ Los artistas se obtienen directamente de la API de Spotify. Una canción puede t
 |ID |Identificador único de la canción |Spotify API
 |Nombre |Nombre de la canción |Spotify API
 |Artista(s) |Nombre(s) del/los artista(s). Una canción puede tener múltiples artistas en caso de colaboraciones; todos se registran |Spotify API
-|Año de lanzamiento |Año original de lanzamiento (no el de remasterización) |ChatGPT API
+|Año de lanzamiento |Año de lanzamiento del álbum en Spotify |Spotify API
+|Fecha de lanzamiento |Fecha completa (YYYY-MM-DD, YYYY-MM o YYYY) para ordenación cronológica interna. No se muestra al usuario |Spotify API
 |Género |Género principal (de los 10 definidos) |ChatGPT API
 |Idioma(s) |Idioma(s) de la canción (detectados dinámicamente). Una canción puede tener múltiples idiomas si se canta en más de uno |ChatGPT API
 |===
@@ -119,6 +116,7 @@ Los artistas se obtienen directamente de la API de Spotify. Una canción puede t
 - El usuario puede autenticarse con sus credenciales de Spotify.
 - El usuario puede cerrar sesión en cualquier momento.
 - La sesión se mantiene activa mientras el usuario navega la aplicación.
+- Una vez autenticado, el header de la aplicación muestra la foto de perfil y el nombre del usuario obtenidos de la API de Spotify (`GET /me`).
 
 '''
 
@@ -131,8 +129,10 @@ Los artistas se obtienen directamente de la API de Spotify. Una canción puede t
 2. Si no existen playlists sincronizadas, se muestra un estado vacío con el botón "Sincronizar Playlists". Los demás botones de acción (ej: "Organizar") se muestran deshabilitados.
 3. El usuario presiona "Sincronizar Playlists".
 4. Se muestra una pantalla bloqueante con el mensaje "Sincronizando..." que impide cualquier navegación o interacción.
-5. El sistema obtiene todas las playlists del usuario desde Spotify (incluyendo Liked Songs).
+5. El sistema obtiene todas las playlists del usuario desde Spotify (incluyendo Liked Songs) y, para cada una, obtiene *todas* sus canciones con metadatos completos (nombre, artista, álbum, fecha de lanzamiento). Las canciones se clasifican con ChatGPT (género e idioma) durante la sincronización.
 6. Al finalizar, se redirige al usuario a la página principal con las playlists ya cargadas.
+
+NOTE: Durante la fase de desarrollo, la sincronización se limita a las primeras 10 canciones por playlist para agilizar las pruebas. En la versión final se traerán todas las canciones.
 
 *Criterios de aceptación:*
 - Si no hay playlists sincronizadas, la página principal muestra un estado vacío con el botón "Sincronizar Playlists".
@@ -149,7 +149,7 @@ Los artistas se obtienen directamente de la API de Spotify. Una canción puede t
 * *Sección superior — Playlists del usuario:* playlists creadas por el usuario en Spotify. Cada playlist cuenta con una casilla de selección que permite marcarla como origen para la generación de nuevas playlists (RF4–RF7). Se incluye un botón *"Seleccionar todas"* para marcar o desmarcar todas las playlists de esta sección simultáneamente.
 * *Sección inferior — Playlists de Splitify:* playlists generadas previamente por el sistema. Cada playlist dispone de:
 ** Un botón *"Eliminar"* para eliminarla de la cuenta de Spotify del usuario.
-** Un botón *"Actualizar"* para sincronizar su contenido con las playlists origen actuales (incorporando canciones añadidas recientemente a las playlists base).
+** Un botón *"Actualizar"* para sincronizar su contenido con las playlists origen actuales (ver RF2.2).
 ** Una casilla de selección para operaciones en lote.
 
 El usuario puede acceder a cualquier playlist (de usuario o de Splitify) para consultar las canciones con su información detallada.
@@ -180,14 +180,40 @@ El usuario puede acceder a cualquier playlist (de usuario o de Splitify) para co
 
 '''
 
+=== RF2.2 — Actualización de Playlists de Splitify
+
+*Descripción:* El sistema permitirá al usuario actualizar las playlists de Splitify para reflejar los cambios ocurridos en las playlists origen (las playlists que fueron seleccionadas al momento de crear la playlist de Splitify). La actualización puede realizarse de forma individual (botón "Actualizar" en cada playlist de Splitify) o en lote (botón "Actualizar seleccionadas" en RF2.1). Para esto, el sistema debe recordar qué playlists origen y qué criterio de organización (idioma, género, fecha de lanzamiento) se usaron al crear cada playlist de Splitify.
+
+*Flujo:*
+1. El usuario presiona "Actualizar" en una playlist de Splitify (o selecciona varias y presiona "Actualizar seleccionadas").
+2. El sistema consulta el estado actual de las playlists origen en Spotify.
+3. El sistema compara las canciones actuales de las playlists origen con las canciones de la playlist de Splitify y aplica los cambios necesarios:
+   - *Canciones nuevas en las playlists origen:* se clasifican (género e idioma) y, si cumplen con el criterio de la playlist de Splitify (ej: mismo idioma o mismo género), se agregan en la posición correcta según la fecha de lanzamiento (manteniéndose la ordenación de RN1).
+   - *Canciones eliminadas de las playlists origen:* se eliminan de la playlist de Splitify.
+   - *Playlist origen eliminada:* si una de las playlists origen ya no existe en Spotify, se eliminan de la playlist de Splitify las canciones que provenían de esa fuente.
+4. Si tras la actualización la playlist de Splitify queda sin canciones, se elimina automáticamente tanto de Spotify como de la base de datos.
+5. Los cambios se reflejan tanto en Spotify (agregar/eliminar canciones de la playlist) como en la base de datos local.
+
+*Criterios de aceptación:*
+- El sistema registra qué playlists origen y qué criterio de organización se usaron para crear cada playlist de Splitify.
+- Las canciones nuevas que cumplan el criterio se insertan en la posición correcta según fecha de lanzamiento.
+- Las canciones eliminadas de las playlists origen se eliminan de la playlist de Splitify.
+- Si una playlist origen fue eliminada de Spotify, sus canciones se eliminan de la playlist de Splitify.
+- Si la playlist de Splitify queda vacía tras la actualización, se elimina automáticamente de Spotify y de la base de datos.
+- La actualización se refleja tanto en Spotify como en la base de datos local.
+
+'''
+
 === RF3 — Obtención de Metadatos de Canciones
 
-*Descripción:* El sistema obtendrá la información de cada canción en una playlist: id, nombre, artista, año original de lanzamiento, género e idioma. El año de lanzamiento, género e idioma se obtienen mediante ChatGPT API. Se utiliza ChatGPT para el año de lanzamiento en lugar de la fecha de Spotify, ya que Spotify puede devolver la fecha de una reedición o remasterización en vez de la del lanzamiento original. En la vista de detalle de una playlist, las canciones se cargarán de forma progresiva conforme el usuario haga scroll (*carga paginada / infinite scroll*), ya que una playlist puede contener cientos o miles de canciones.
+*Descripción:* El sistema obtendrá la información de cada canción en una playlist: id, nombre, artista, álbum, año de lanzamiento, fecha de lanzamiento, género e idioma. El género e idioma se obtienen mediante ChatGPT API (GPT-4.1-nano). El año y fecha de lanzamiento se obtienen directamente de Spotify (fecha del álbum). En la vista de detalle de una playlist, las canciones se cargarán de forma progresiva conforme el usuario haga scroll (*carga paginada / infinite scroll*), ya que una playlist puede contener cientos o miles de canciones.
 
 *Criterios de aceptación:*
 - Se obtienen todos los campos definidos en la sección 4.1 para cada canción.
 - El género se clasifica correctamente en una de las 10 categorías definidas en la sección 3.2.
 - El idioma se detecta dinámicamente mediante ChatGPT API (ver sección 3.1).
+- El año de lanzamiento se toma directamente de Spotify (fecha del álbum).
+- Las clasificaciones de género e idioma se cachean para evitar consultas repetidas en re-sincronizaciones.
 - En la vista de detalle, las canciones se cargan de forma paginada conforme el usuario hace scroll, sin cargar todas de una vez.
 - Se muestra un indicador de carga mientras se obtienen más canciones.
 
@@ -200,7 +226,7 @@ El usuario puede acceder a cualquier playlist (de usuario o de Splitify) para co
 *Flujo:*
 1. El usuario selecciona una o más playlists origen (incluyendo Liked Songs) desde la sección superior de la página principal.
 2. El sistema genera una playlist por cada idioma detectado entre las canciones de las playlists seleccionadas. Los idiomas se determinan dinámicamente a partir de la clasificación de ChatGPT (ver sección 3.1), sin limitarse a un catálogo fijo.
-3. Las canciones dentro de cada playlist se ordenan por fecha original de lanzamiento (ascendente).
+3. Las canciones dentro de cada playlist se ordenan por fecha de lanzamiento (ascendente).
 
 *Nomenclatura de playlists creadas:*
 `Splitify {Idioma} Songs` (ej: `Splitify Español Songs`, `Splitify Inglés Songs`)
@@ -214,33 +240,33 @@ El usuario puede acceder a cualquier playlist (de usuario o de Splitify) para co
 *Flujo:*
 1. El usuario selecciona una o más playlists origen (incluyendo Liked Songs) desde la sección superior de la página principal.
 2. El sistema genera una playlist por cada género detectado entre las canciones de las playlists seleccionadas (hasta 10 géneros definidos).
-3. Las canciones dentro de cada playlist se ordenan por fecha original de lanzamiento (ascendente).
+3. Las canciones dentro de cada playlist se ordenan por fecha de lanzamiento (ascendente).
 
 *Nomenclatura de playlists creadas:*
 `Splitify {Género} Songs` (ej: `Splitify Rock Songs`)
 
 '''
 
-=== RF6 — Ordenar por Época/Década
+=== RF6 — Ordenar por Fecha de Lanzamiento
 
-*Descripción:* El usuario podrá generar una única playlist que contenga todas las canciones de las playlists seleccionadas, ordenadas por fecha original de lanzamiento.
+*Descripción:* El usuario podrá generar una única playlist que contenga todas las canciones de las playlists seleccionadas, ordenadas por fecha de lanzamiento.
 
 *Flujo:*
 1. El usuario selecciona una o más playlists origen (incluyendo Liked Songs) desde la sección superior de la página principal.
 2. El sistema genera una única playlist en Spotify con todas las canciones, ordenadas por fecha de lanzamiento (ascendente).
 
 *Nomenclatura de playlists creadas:*
-`Splitify Songs By Release Date (Playlists included: {Playlists})` (ej: `Splitify Songs By Release Date (Playlists included: Liked Songs, Rock Classics)`)
+`Splitify Songs By Release Date`
 
 '''
 
 === RF6.1 — Creación Combinada de Playlists Genéricas
 
-*Descripción:* El sistema permitirá al usuario seleccionar múltiples tipos de ordenamiento genérico (por idioma, por género y/o por época) de forma simultánea y ejecutar la creación de todas las playlists resultantes con un único botón *"Crear playlists"*.
+*Descripción:* El sistema permitirá al usuario seleccionar múltiples tipos de ordenamiento genérico (por idioma, por género y/o por fecha de lanzamiento) de forma simultánea y ejecutar la creación de todas las playlists resultantes con un único botón *"Crear playlists"*.
 
 *Flujo:*
 1. El usuario selecciona una o más playlists origen desde la sección superior de la página principal.
-2. El usuario marca uno o más tipos de ordenamiento genérico: por idioma (RF4), por género (RF5) y/o por época (RF6).
+2. El usuario marca uno o más tipos de ordenamiento genérico: por idioma (RF4), por género (RF5) y/o por fecha de lanzamiento (RF6).
 3. El usuario presiona el botón "Crear playlists".
 4. El sistema genera todas las playlists correspondientes a los tipos de ordenamiento seleccionados.
 
@@ -251,15 +277,15 @@ El usuario puede acceder a cualquier playlist (de usuario o de Splitify) para co
 
 '''
 
-=== RF7 — Ordenar por Idioma + Género + Artista + Época (Personalizado)
+=== RF7 — Ordenar por Idioma + Género + Artista (Personalizado)
 
-*Descripción:* El usuario podrá crear una nueva playlist combinando filtros de idioma, género, artista y época simultáneamente. Los filtros disponibles se determinan dinámicamente a partir de las canciones de las playlists seleccionadas: el sistema analiza los idiomas, géneros, artistas y décadas que realmente existen en las canciones y solo muestra esos filtros. Esto evita que el usuario seleccione filtros que no producirían resultados (ej: si no hay canciones en chino, el filtro de chino no aparece; si un artista no tiene canciones en las playlists seleccionadas, no aparece).
+*Descripción:* El usuario podrá crear una nueva playlist combinando filtros de idioma, género y artista simultáneamente. Los filtros disponibles se determinan dinámicamente a partir de las canciones de las playlists seleccionadas: el sistema analiza los idiomas, géneros y artistas que realmente existen en las canciones y solo muestra esos filtros. Esto evita que el usuario seleccione filtros que no producirían resultados (ej: si no hay canciones en chino, el filtro de chino no aparece; si un artista no tiene canciones en las playlists seleccionadas, no aparece).
 
 *Flujo:*
 1. El usuario selecciona una o más playlists origen (incluyendo Liked Songs) desde la sección superior de la página principal.
-2. El sistema analiza las canciones de las playlists seleccionadas y determina los idiomas, géneros, artistas y décadas presentes.
-3. Se presentan al usuario únicamente los filtros correspondientes a idiomas, géneros, artistas y décadas que existen en las canciones seleccionadas.
-4. El usuario selecciona idioma(s), género(s), artista(s) y/o época(s) entre los filtros disponibles.
+2. El sistema analiza las canciones de las playlists seleccionadas y determina los idiomas, géneros y artistas presentes.
+3. Se presentan al usuario únicamente los filtros correspondientes a idiomas, géneros y artistas que existen en las canciones seleccionadas.
+4. El usuario selecciona idioma(s), género(s) y/o artista(s) entre los filtros disponibles.
 5. El usuario escribe el nombre que desea para la playlist.
 6. El sistema crea una única playlist con las canciones que cumplan todos los criterios.
 
@@ -273,13 +299,14 @@ El usuario puede acceder a cualquier playlist (de usuario o de Splitify) para co
 |===
 |# |Regla 
 
-|RN1 |Todas las playlists creadas por el sistema estarán ordenadas por fecha de lanzamiento de las canciones (ascendente). 
+|RN1 |Todas las playlists creadas por el sistema estarán ordenadas por fecha de lanzamiento de las canciones (ascendente).
 |RN2 |Los idiomas se detectan dinámicamente mediante ChatGPT API. Se genera una playlist por cada idioma detectado sin limitarse a un catálogo fijo. Las canciones instrumentales o sin letra se agrupan en una playlist "Sin letra".
-|RN3 |La clasificación de género se delega a ChatGPT API, mapeando cualquier subgénero a las 10 categorías principales. La clasificación de idioma también se delega a ChatGPT API, que identifica el idioma exacto de cada canción.
-|RN6 |Los filtros del modo personalizado (RF7) son dinámicos: solo se muestran los idiomas, géneros, artistas y décadas que existen en las canciones de las playlists seleccionadas. No se presentan opciones que no producirían resultados.
+|RN3 |La clasificación de género se delega a ChatGPT API (GPT-4.1-nano), mapeando cualquier subgénero a las 10 categorías principales. La clasificación de idioma también se delega a ChatGPT API. El año de lanzamiento se obtiene directamente de Spotify (fecha del álbum).
+|RN6 |Los filtros del modo personalizado (RF7) son dinámicos: solo se muestran los idiomas, géneros y artistas que existen en las canciones de las playlists seleccionadas. No se presentan opciones que no producirían resultados.
 |RN7 |El filtrado de canciones es *inclusivo* en campos multi-valor: si una canción tiene múltiples idiomas (ej: inglés y español) y el usuario filtra por inglés, la canción se incluye. De igual forma, si una canción es una colaboración de varios artistas y el usuario filtra por uno de ellos, basta con que el artista deseado participe en la canción para que se incluya en el resultado.
 |RN4 |La creación de playlists genéricas (RF4, RF5, RF6) siempre producirá al menos una playlist, dado que toda canción pertenece a un idioma, un género y una fecha de lanzamiento.
 |RN5 |La creación de playlists personalizadas (RF7) puede no generar ninguna playlist si ninguna canción cumple con todos los filtros seleccionados. En ese caso, el sistema notificará al usuario mediante un mensaje de error indicando que no se encontraron canciones que coincidan con los criterios especificados.
+|RN8 |El sistema debe persistir la relación entre cada playlist de Splitify y sus playlists origen, así como el criterio de organización utilizado (idioma, género, fecha de lanzamiento). Esta información es necesaria para la funcionalidad de actualización (RF2.2).
 |===
 
 '''
@@ -306,4 +333,9 @@ El usuario puede acceder a cualquier playlist (de usuario o de Splitify) para co
 |2026-03-30 |1.1 |Formalización del lenguaje. Adición de RF2.1 (gestión en lote), RF6.1 (creación combinada de genéricas), RN4 y RN5 (comportamiento ante resultados vacíos). Detalle de la organización de la página principal y mecanismos de selección.
 |2026-03-31 |1.2 |Adición de RF1.1 (sincronización de playlists con estado vacío y pantalla bloqueante). Idiomas ahora son dinámicos (sección 3.1 reescrita, RN2 actualizada). Carga paginada de canciones en vista de detalle (RF3 actualizada). Filtros dinámicos en modo personalizado: solo se muestran idiomas, géneros y décadas presentes en las playlists seleccionadas (RF7 actualizado, RN6 nueva). Campo idioma añadido a metadatos de canción (sección 4.1).
 |2026-04-07 |1.3 |Campos multi-valor: Artista e Idioma ahora son listas (una canción puede tener múltiples artistas e idiomas). Nueva sección 3.4 (Artistas dinámicos). Sección 4.1 actualizada. Nuevo filtro por artista en modo personalizado (RF7 renombrado). Nueva regla RN7 (filtrado inclusivo en campos multi-valor). RN6 actualizada para incluir artistas. Entidad Playlist ahora almacena los idiomas, géneros, artistas y décadas presentes en sus canciones para filtros dinámicos.
+|2026-04-08 |1.4 |RF1 actualizado: el header muestra la foto de perfil y nombre del usuario de Spotify. El perfil se obtiene del endpoint `GET /me` de la API de Spotify.
+|2026-04-08 |1.5 |RF3 actualizado: año de lanzamiento ahora se obtiene de Spotify + MusicBrainz (no de ChatGPT). ChatGPT solo clasifica género e idioma. Nuevos campos en metadatos: Álbum y Fecha de lanzamiento (sección 4.1). RN3 actualizada. Nuevos criterios de aceptación en RF3: caché de clasificaciones y corrección de fechas con MusicBrainz.
+|2026-04-08 |1.6 |RF4 (por idioma), RF5 (por género), RF6 (por fecha de lanzamiento) y RF6.1 (creación combinada) implementados. Endpoint unificado para las tres operaciones genéricas.
+|2026-04-09 |1.7 |Eliminada integración con MusicBrainz: las fechas de lanzamiento se obtienen exclusivamente de Spotify (fecha del álbum). Sección 3.3 (Épocas/Décadas) eliminada. Eliminado filtro de décadas del modo personalizado (RF7): solo quedan idioma, género y artista. RN3, RN6 actualizadas.
+|2026-04-09 |1.8 |RF1.1 actualizado: la sincronización obtiene todas las canciones de cada playlist (no solo las primeras 10; el límite de 10 se mantiene temporalmente en desarrollo). Nuevo RF2.2 (actualización de playlists de Splitify): detalla el comportamiento del botón "Actualizar" — agrega canciones nuevas en posición correcta, elimina canciones removidas de las fuentes, limpia canciones de playlists origen eliminadas. Nueva RN8: el sistema debe persistir las playlists origen y el criterio de organización de cada playlist de Splitify.
 |===

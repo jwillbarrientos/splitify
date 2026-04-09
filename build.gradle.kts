@@ -29,6 +29,7 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-security")
 	implementation("org.springframework.boot:spring-boot-starter-oauth2-client")
 	implementation("org.springframework.boot:spring-boot-starter-webmvc")
+	implementation("com.fasterxml.jackson.core:jackson-databind")
 	runtimeOnly("org.xerial:sqlite-jdbc")
 	runtimeOnly("org.hibernate.orm:hibernate-community-dialects")
 	compileOnly("org.projectlombok:lombok")

@@ -23,6 +23,8 @@ public class Song {
 
     private Integer releaseYear;
 
+    private String releaseDate;
+
     private String genre;
 
     private String language;

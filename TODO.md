@@ -14,6 +14,21 @@ que aparezca la foto de perfil y nombre de usuario en la esquina superior derech
 
 lo siguiente es implementar la funcionalidad con chat gpt, luego que se pueda crear playlists
 
+ahora mismo como funciona el programa? cuando sincroniza trae absolutamente todo? y por ende
+tarda mucho, o solo trae algunas cosas y luego por ejemplo, lo que es necesario traer con
+prompts a chat gpt, va cargando mientras navega en la pagina? porque quiero que sincronize
+todo y luego recien pueda navegar a la pagina, nose si paso un error o no termino de cargar,
+pero una musica no trajo su idioma ni genero por ejemplo, cuando resincronize si lo trajo? las
+musicas estan cacheadas? si 2 usuarios, o 1 mismo usuario por ejemplo, tienen exactamente la
+misma musica, pero o por diferente usuario o por diferente playlist, va a volver a cargar
+todo? y que pasa si tengo una musica creada por splitify, y la elimino pero desde spotify y no
+desde splitify, la playlist aunque ya no exista en mi cuenta se seguira mostrando? y si por
+ejemplo agrego una musica a la playlist de splitify desde spotify, que pasara? hasta se puede
+desordenar ya que yo agrego la musica sin tomar en cuenta nada de lanzamiento, splitify hara
+algo? o nisiquiera cargara musicas que yo mismo agrego desde spotify?
+
+para que quiero saber el album de Song?
+
 - (2h)investigar si es realmente posible con los ultimos cambios de la api de spotify lo siguiente:
   - obtener referencias de las musicas (musica id/name/artist name) q existen en todos los playlists del usuario y de los 'liked' musics
   - crear playlists

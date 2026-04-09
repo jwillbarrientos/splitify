@@ -9,6 +9,12 @@ async function apiFetch(url, options = {}) {
   return res;
 }
 
+export async function getUserProfile() {
+  const res = await apiFetch(`${API_BASE}/user/me`);
+  if (!res.ok) throw new Error('Failed to fetch user profile');
+  return res.json();
+}
+
 export async function syncPlaylists() {
   const res = await apiFetch(`${API_BASE}/playlists/sync`, { method: 'POST' });
   if (!res.ok) throw new Error('Sync failed');
@@ -42,16 +48,6 @@ export async function logout() {
   await fetch(`${API_BASE}/auth/logout`, { method: 'POST' });
 }
 
-export async function createTestPlaylist(playlistIds) {
-  const res = await apiFetch(`${API_BASE}/playlists/test`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(playlistIds),
-  });
-  if (!res.ok) throw new Error('Failed to create test playlist');
-  return res.json();
-}
-
 export async function getSplitifyPlaylists() {
   const res = await apiFetch(`${API_BASE}/playlists/splitify`);
   if (!res.ok) throw new Error('Failed to fetch splitify playlists');
@@ -61,6 +57,21 @@ export async function getSplitifyPlaylists() {
 export async function deleteSplitifyPlaylist(id) {
   const res = await apiFetch(`${API_BASE}/playlists/splitify/${id}`, { method: 'DELETE' });
   if (!res.ok) throw new Error('Failed to delete playlist');
+}
+
+export async function createOrganizedPlaylists(playlistIds, options) {
+  const res = await apiFetch(`${API_BASE}/playlists/create/combined`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      playlistIds,
+      byLanguage: options.idioma,
+      byGenre: options.genero,
+      byReleaseDate: options.fecha,
+    }),
+  });
+  if (!res.ok) throw new Error('Failed to create playlists');
+  return res.json();
 }
 
 export async function deleteSplitifyPlaylists(ids) {

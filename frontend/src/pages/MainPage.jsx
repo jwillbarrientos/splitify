@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Music, Music2, LogOut, Sparkles, RefreshCw, FolderOpen, Trash2, CheckCheck } from 'lucide-react'
-import { getPlaylists, syncPlaylists, deletePlaylists, logout, getSplitifyPlaylists, deleteSplitifyPlaylist, deleteSplitifyPlaylists } from '../services/api'
+import { Music, Sparkles, RefreshCw, FolderOpen, Trash2, CheckCheck } from 'lucide-react'
+import { getPlaylists, syncPlaylists, deletePlaylists, getSplitifyPlaylists, deleteSplitifyPlaylist, deleteSplitifyPlaylists } from '../services/api'
 import SyncOverlay from '../components/SyncOverlay'
 import PlaylistCard from '../components/PlaylistCard'
 import SplitifyCard from '../components/SplitifyCard'
@@ -74,11 +74,6 @@ function MainPage() {
     }
   }
 
-  const handleLogout = async () => {
-    await logout()
-    navigate('/login')
-  }
-
   const toggleSelect = (id) => {
     setSelectedIds(prev => {
       const next = new Set(prev)
@@ -106,8 +101,9 @@ function MainPage() {
     setSplitifySelectedIds(allSplitifySelected ? new Set() : new Set(splitifyList.map(p => p.id)))
   }
 
-  const handleTestCreate = (newPlaylist) => {
-    setSplitifyList(prev => [...prev, newPlaylist])
+  const handlePlaylistsCreated = (newPlaylists) => {
+    setSplitifyList(prev => [...prev, ...newPlaylists])
+    setSelectedIds(new Set())
     setShowOrganizeModal(false)
   }
 
@@ -140,35 +136,15 @@ function MainPage() {
   const splitifySelectedCount = splitifySelectedIds.size
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A] text-white">
+    <>
       <SyncOverlay visible={syncing} />
       <OrganizeModal
         visible={showOrganizeModal}
         onClose={() => setShowOrganizeModal(false)}
         selectedIds={Array.from(selectedIds)}
-        onTestCreate={handleTestCreate}
+        onPlaylistsCreated={handlePlaylistsCreated}
       />
 
-      {/* Header */}
-      <header className="flex h-16 items-center justify-between border-b border-zinc-800 px-6">
-        <div className="flex items-center gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-b from-green-500 to-blue-500">
-            <Music2 size={20} className="text-white" />
-          </div>
-          <span className="bg-gradient-to-r from-green-500 to-blue-500 bg-clip-text text-[22px] font-bold text-transparent">
-            Splitify
-          </span>
-        </div>
-        <button
-          onClick={handleLogout}
-          className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm text-zinc-400 transition hover:bg-zinc-800 hover:text-white"
-        >
-          <LogOut size={16} />
-          Cerrar sesión
-        </button>
-      </header>
-
-      {/* Main */}
       <main className="flex flex-col gap-6 p-8">
         {/* Sección: Tus Playlists de Spotify */}
         <section className="flex flex-col gap-5">
@@ -186,14 +162,14 @@ function MainPage() {
                 <>
                   <button
                     onClick={handleDelete}
-                    className="flex items-center gap-2 rounded-lg border border-red-900/50 bg-[#0A0A0A] px-4 py-2.5 text-sm font-medium text-red-400 transition hover:bg-red-950/30"
+                    className="flex items-center gap-2 rounded-lg border border-red-900/50 bg-[#0A0A0A] px-4 py-2.5 text-sm font-medium text-red-400 transition hover:bg-red-500/20 hover:border-red-500/70 hover:text-red-300"
                   >
                     <Trash2 size={16} />
                     Borrar datos
                   </button>
                   <button
                     onClick={handleSync}
-                    className="flex items-center gap-2 rounded-lg bg-green-500 px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-green-600"
+                    className="flex items-center gap-2 rounded-lg border border-green-900/50 bg-[#0A0A0A] px-4 py-2.5 text-sm font-medium text-green-400 transition hover:bg-green-500/20 hover:border-green-500/70 hover:text-green-300"
                   >
                     <RefreshCw size={16} />
                     Re-sincronizar
@@ -268,15 +244,15 @@ function MainPage() {
                 </button>
                 <button
                   onClick={splitifySelectedCount > 0 ? handleDeleteSplitifySelected : undefined}
-                  className={`flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium text-red-500 transition ${
-                    splitifySelectedCount > 0 ? 'hover:bg-red-500/10 cursor-pointer' : 'opacity-40 cursor-not-allowed'
+                  className={`flex items-center gap-2 rounded-lg border border-red-900/50 bg-[#0A0A0A] px-4 py-2.5 text-sm font-medium text-red-400 transition ${
+                    splitifySelectedCount > 0 ? 'hover:bg-red-500/20 hover:border-red-500/70 hover:text-red-300 cursor-pointer' : 'opacity-40 cursor-not-allowed'
                   }`}
                 >
                   <Trash2 size={16} />
                   Eliminar Seleccionados
                 </button>
                 <button
-                  className="flex items-center gap-2 rounded-lg bg-green-500 px-4 py-2.5 text-sm font-semibold text-black opacity-40 cursor-not-allowed"
+                  className="flex items-center gap-2 rounded-lg border border-green-900/50 bg-[#0A0A0A] px-4 py-2.5 text-sm font-medium text-green-400 transition opacity-40 cursor-not-allowed"
                 >
                   <RefreshCw size={16} />
                   Actualizar Seleccionados
@@ -308,7 +284,7 @@ function MainPage() {
           )}
         </section>
       </main>
-    </div>
+    </>
   )
 }
 

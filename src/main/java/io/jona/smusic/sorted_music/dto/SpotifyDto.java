@@ -32,7 +32,10 @@ public class SpotifyDto {
     public record TrackWrapper(@JsonAlias("item") Track track) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Track(String id, String name, List<Artist> artists) {}
+    public record Track(String id, String name, List<Artist> artists, Album album) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Album(String name, @JsonProperty("release_date") String releaseDate) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Artist(String name) {}
@@ -42,4 +45,8 @@ public class SpotifyDto {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record CreatePlaylistResponse(String id, String name) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record UserProfileResponse(@JsonProperty("display_name") String displayName,
+                                      List<Image> images) {}
 }

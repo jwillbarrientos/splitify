@@ -1,5 +1,6 @@
 package io.jona.smusic.sorted_music.controller;
 
+import io.jona.smusic.sorted_music.dto.CreatePlaylistsRequest;
 import io.jona.smusic.sorted_music.dto.PlaylistDto;
 import io.jona.smusic.sorted_music.dto.SongDto;
 import io.jona.smusic.sorted_music.repository.PlaylistRepository;
@@ -54,10 +55,12 @@ public class PlaylistController {
                 .toList();
     }
 
-    @PostMapping("/test")
-    public PlaylistDto createTestPlaylist(OAuth2AuthenticationToken authentication,
-                                          @RequestBody List<Long> playlistIds) {
-        return spotifyService.createTestPlaylist(authentication, playlistIds);
+    @PostMapping("/create/combined")
+    public List<PlaylistDto> createOrganizedPlaylists(OAuth2AuthenticationToken authentication,
+                                                       @RequestBody CreatePlaylistsRequest request) {
+        return spotifyService.createOrganizedPlaylists(
+                authentication, request.playlistIds(),
+                request.byLanguage(), request.byGenre(), request.byReleaseDate());
     }
 
     @GetMapping("/splitify")
