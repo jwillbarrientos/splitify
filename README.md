@@ -2,6 +2,8 @@
 
 Aplicación web que organiza tus playlists de Spotify por idioma, género musical y década de lanzamiento, usando IA para la clasificación.
 
+https://github.com/user-attachments/assets/eb34b5c4-20a2-4d76-9ec8-9d1bd07cbc19
+
 ## Requisitos Previos
 
 Antes de empezar, necesitas tener instalado:
