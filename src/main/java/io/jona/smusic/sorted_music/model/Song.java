@@ -29,6 +29,14 @@ public class Song {
 
     private String language;
 
+    @Column(columnDefinition = "boolean default false")
+    @Builder.Default
+    private boolean excluded = false;
+
+    @Column(columnDefinition = "boolean default false")
+    @Builder.Default
+    private boolean manuallyAdded = false;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "playlist_id")
     private Playlist playlist;

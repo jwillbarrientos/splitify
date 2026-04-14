@@ -1,7 +1,10 @@
 package io.jona.smusic.sorted_music.controller;
 
+import io.jona.smusic.sorted_music.dto.AvailableFiltersDto;
+import io.jona.smusic.sorted_music.dto.CreateCustomPlaylistRequest;
 import io.jona.smusic.sorted_music.dto.CreatePlaylistsRequest;
 import io.jona.smusic.sorted_music.dto.PlaylistDto;
+import io.jona.smusic.sorted_music.dto.RefreshPreviewDto;
 import io.jona.smusic.sorted_music.dto.SongDto;
 import io.jona.smusic.sorted_music.repository.PlaylistRepository;
 import io.jona.smusic.sorted_music.repository.SongRepository;
@@ -11,6 +14,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @RestController
@@ -49,6 +53,7 @@ public class PlaylistController {
     @GetMapping("/{id}/songs")
     public List<SongDto> getSongs(@PathVariable Long id) {
         return songRepository.findByPlaylistId(id).stream()
+                .filter(s -> !s.isExcluded())
                 .map(s -> new SongDto(
                         s.getId(), s.getSpotifyId(), s.getName(), s.getArtist(),
                         s.getReleaseYear(), s.getGenre(), s.getLanguage()))
@@ -63,9 +68,59 @@ public class PlaylistController {
                 request.byLanguage(), request.byGenre(), request.byReleaseDate());
     }
 
+    @GetMapping("/available-filters")
+    public AvailableFiltersDto getAvailableFilters(@RequestParam("playlistIds") List<Long> playlistIds) {
+        return spotifyService.getAvailableFilters(playlistIds);
+    }
+
+    @PostMapping("/create/custom")
+    public PlaylistDto createCustomPlaylist(OAuth2AuthenticationToken authentication,
+                                             @RequestBody CreateCustomPlaylistRequest request) {
+        return spotifyService.createCustomPlaylist(
+                authentication,
+                request.playlistIds(),
+                request.languages(),
+                request.genres(),
+                request.artists(),
+                request.name());
+    }
+
     @GetMapping("/splitify")
     public List<PlaylistDto> getSplitifyPlaylists(OAuth2AuthenticationToken authentication) {
         return spotifyService.getSplitifyPlaylists(authentication.getName());
+    }
+
+    @GetMapping("/splitify/{id}/refresh/preview")
+    public RefreshPreviewDto previewRefresh(@PathVariable Long id,
+                                            OAuth2AuthenticationToken authentication) {
+        return spotifyService.previewRefresh(authentication, id);
+    }
+
+    @PutMapping("/splitify/{id}/refresh")
+    public ResponseEntity<PlaylistDto> refreshSplitifyPlaylist(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "false") boolean restoreRemoved,
+            OAuth2AuthenticationToken authentication) {
+        PlaylistDto result = spotifyService.refreshSplitifyPlaylist(authentication, id, restoreRemoved);
+        if (result == null) {
+            return ResponseEntity.noContent().build();
+        }
+        return ResponseEntity.ok(result);
+    }
+
+    @PutMapping("/splitify/batch/refresh")
+    public List<PlaylistDto> refreshSplitifyPlaylists(
+            @RequestBody List<Long> ids,
+            @RequestParam(defaultValue = "false") boolean restoreRemoved,
+            OAuth2AuthenticationToken authentication) {
+        List<PlaylistDto> results = new ArrayList<>();
+        for (Long id : ids) {
+            PlaylistDto result = spotifyService.refreshSplitifyPlaylist(authentication, id, restoreRemoved);
+            if (result != null) {
+                results.add(result);
+            }
+        }
+        return results;
     }
 
     @DeleteMapping("/splitify/{id}")

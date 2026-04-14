@@ -2,7 +2,7 @@
 
 == Splitify
 
-*Versión:* 1.8
+*Versión:* 2.0
 *Fecha:* 2026-04-09
 *Autor:* Barri
 
@@ -122,15 +122,21 @@ splitify/
 │   │   │   └── ClassificationService.java ← Clasificación (ChatGPT: género e idioma)
 │   │   ├── model/                     ← Entidades JPA
 │   │   │   ├── Playlist.java         ← Playlist de Spotify (caché local)
-│   │   │   └── Song.java
+│   │   │   ├── Song.java
+│   │   │   ├── SongClassification.java ← Caché global de clasificaciones (género/idioma por spotifyId)
+│   │   │   └── SplitifyPlaylistSource.java ← Relación Splitify playlist → playlists origen
 │   │   ├── dto/                       ← Objetos de transferencia
 │   │   │   ├── SpotifyDto.java       ← Records para deserializar Spotify API
 │   │   │   ├── PlaylistDto.java
 │   │   │   ├── SongDto.java
-│   │   │   └── UserProfileDto.java
+│   │   │   ├── UserProfileDto.java
+│   │   │   ├── CreatePlaylistsRequest.java ← Request body para creación combinada
+│   │   │   └── RefreshPreviewDto.java ← Vista previa de actualización (nuevas, eliminadas, cambios)
 │   │   └── repository/               ← Repositorios JPA
 │   │       ├── PlaylistRepository.java
-│   │       └── SongRepository.java
+│   │       ├── SongRepository.java
+│   │       ├── SongClassificationRepository.java
+│   │       └── SplitifyPlaylistSourceRepository.java
 │   └── resources/
 │       ├── application.properties
 │       └── static/                    ← Build de React (generado por Vite)
@@ -155,9 +161,8 @@ El backend sigue una arquitectura en capas:
 |===
 |Servicio |Responsabilidad
 
-|`SpotifyService` |Comunicación con la Spotify Web API: obtener playlists del usuario, obtener canciones de una playlist, crear playlists, agregar canciones, eliminar playlists. Durante la sincronización, guarda la fecha de lanzamiento del álbum de Spotify como fecha por defecto. Mantiene un caché de clasificaciones para evitar re-clasificar canciones en re-sincronizaciones.
-|`ClassificationService` |Comunicación con la API de OpenAI (GPT-4.1-nano) para clasificar el género e idioma de cada canción. El idioma se detecta dinámicamente sin catálogo fijo.
-|`PlaylistService` |Lógica de negocio central: filtrado por idioma/género/época, aplicación de reglas de negocio (RN1–RN5), orquestación de la creación y actualización de playlists.
+|`SpotifyService` |Servicio principal: comunicación con la Spotify Web API (sincronización, CRUD de playlists, obtención de canciones), lógica de negocio (filtrado por idioma/género/fecha, creación y actualización de playlists de Splitify), y persistencia. Gestiona la actualización inteligente de playlists: detecta cambios manuales en Spotify, mantiene estado de exclusiones y adds manuales, y reordena por fecha de lanzamiento.
+|`ClassificationService` |Comunicación con la API de OpenAI (GPT-4.1-nano) para clasificar el género e idioma de cada canción. El idioma se detecta dinámicamente sin catálogo fijo. Utiliza caché global (`SongClassification`) para evitar re-clasificar canciones ya procesadas.
 |===
 
 === 5.3 Endpoints de la API REST
@@ -174,8 +179,9 @@ El backend sigue una arquitectura en capas:
 |POST |`/api/playlists/create/combined` |Crear playlists organizadas por idioma, género y/o fecha (endpoint unificado para RF4, RF5, RF6, RF6.1) |RF4, RF5, RF6, RF6.1 |✅ Implementado
 |GET |`/api/playlists/available-filters?playlistIds={ids}` |Obtener idiomas, géneros y artistas disponibles en las playlists seleccionadas |RF7 |Pendiente
 |POST |`/api/playlists/create/custom` |Crear playlist personalizada con filtros combinados |RF7 |Pendiente
-|PUT |`/api/playlists/splitify/{id}/refresh` |Actualizar una playlist de Splitify: re-evalúa canciones de las playlists origen, agrega nuevas en posición correcta, elimina las removidas, limpia fuentes eliminadas (RF2.2) |RF2, RF2.2 |Pendiente
-|PUT |`/api/playlists/splitify/batch/refresh` |Actualizar múltiples playlists de Splitify en lote (misma lógica que refresh individual) |RF2.1, RF2.2 |Pendiente
+|GET |`/api/playlists/splitify/{id}/refresh/preview` |Vista previa de actualización: detecta canciones nuevas de fuentes, canciones eliminadas manualmente, y canciones agregadas manualmente. Muestra al frontend qué cambiará antes de ejecutar |RF2.2 |✅ Implementado
+|PUT |`/api/playlists/splitify/{id}/refresh` |Actualizar una playlist de Splitify: lee estado real de Spotify, re-evalúa fuentes, gestiona exclusiones y adds manuales, clasifica canciones nuevas, reordena todo por fecha, reemplaza contenido en Spotify. Parámetro `restoreRemoved` controla si restaurar canciones eliminadas manualmente |RF2, RF2.2 |✅ Implementado
+|PUT |`/api/playlists/splitify/batch/refresh` |Actualizar múltiples playlists de Splitify en lote (misma lógica que refresh individual) |RF2.1, RF2.2 |✅ Implementado
 |DELETE |`/api/playlists/splitify/{id}` |Eliminar una playlist de Splitify |RF2 |✅ Implementado
 |DELETE |`/api/playlists/splitify` |Eliminar múltiples playlists de Splitify |RF2.1 |✅ Implementado
 |GET |`/api/playlists/splitify` |Obtener playlists creadas por Splitify |RF2 |✅ Implementado
@@ -269,22 +275,28 @@ Playlist                                  ← Playlists del usuario (caché loca
 ├── totalTracks: int                      ← Cantidad total de canciones
 ├── userId: String                        ← ID del usuario de Spotify
 ├── splitify: boolean (default false)     ← true si fue creada por Splitify
+├── snapshotId: String (nullable)         ← Snapshot ID de Spotify para sync incremental
 ├── filterType: String (nullable)         ← Criterio usado al crear (solo splitify): "language", "genre", "releaseDate"
-├── filterValue: String (nullable)        ← Valor del filtro (solo splitify): ej "Rock", "Inglés", null (para releaseDate)
-├── languages: String (JSON array)        ← Idiomas presentes en la playlist (agregado de sus canciones)
-├── genres: String (JSON array)           ← Géneros presentes en la playlist (agregado de sus canciones)
-└── artists: String (JSON array)          ← Artistas presentes en la playlist (agregado de sus canciones)
+└── filterValue: String (nullable)        ← Valor del filtro (solo splitify): ej "Rock", "Inglés", null (para releaseDate)
 
 Song                                      ← Canciones de cada playlist
 ├── id: Long (PK, autogenerado)
 ├── spotifyId: String                     ← ID único de Spotify
 ├── name: String
 ├── artist: String                        ← Artista(s) separados por coma
-├── releaseYear: Integer (nullable)       ← Año de lanzamiento del álbum en Spotify. ✅ Implementado
-├── releaseDate: String (nullable)        ← Fecha completa para ordenación interna ("YYYY-MM-DD", "YYYY-MM" o "YYYY"). ✅ Implementado
-├── genre: String (nullable)              ← Género musical (ChatGPT). ✅ Implementado
-├── language: String (nullable)           ← Idioma(s) separados por coma (ChatGPT). ✅ Implementado
+├── releaseYear: Integer (nullable)       ← Año de lanzamiento del álbum en Spotify
+├── releaseDate: String (nullable)        ← Fecha completa para ordenación interna ("YYYY-MM-DD", "YYYY-MM" o "YYYY")
+├── genre: String (nullable)              ← Género musical (ChatGPT)
+├── language: String (nullable)           ← Idioma(s) separados por coma (ChatGPT)
+├── excluded: boolean (default false)     ← true si el usuario eligió no restaurar esta canción (solo en playlists Splitify)
+├── manuallyAdded: boolean (default false) ← true si el usuario agregó esta canción manualmente en Spotify (solo en playlists Splitify)
 └── playlist_id: Long (FK → Playlist)     ← ManyToOne
+
+SongClassification                        ← Caché global de clasificaciones (evita re-consultar ChatGPT)
+├── id: Long (PK, autogenerado)
+├── spotifyId: String (unique, not null)  ← ID de Spotify de la canción
+├── genre: String (nullable)              ← Género clasificado
+└── language: String (nullable)           ← Idioma(s) clasificados
 
 SplitifyPlaylistSource                    ← Relación entre playlists de Splitify y sus playlists origen
 ├── id: Long (PK, autogenerado)
@@ -297,12 +309,12 @@ La tabla `SplitifyPlaylistSource` permite al sistema saber qué playlists origen
 === 8.2 Estrategia de Persistencia
 
 * La entidad `Playlist` persiste las playlists del usuario de Spotify localmente tras la sincronización. Al re-sincronizar, se eliminan los datos viejos y se reemplazan con datos frescos de Spotify.
-* La entidad `Song` almacena todas las canciones de cada playlist. Una misma canción de Spotify puede existir múltiples veces si aparece en varias playlists (relación ManyToOne simple). Los campos `releaseYear` y `releaseDate` se obtienen directamente de Spotify (fecha del álbum). Los campos `genre` y `language` se clasifican mediante ChatGPT API (GPT-4.1-nano). Los campos de clasificación funcionan como caché: al re-sincronizar, las clasificaciones existentes se preservan por `spotifyId` y solo se consulta ChatGPT para canciones nuevas.
+* La entidad `Song` almacena todas las canciones de cada playlist. Una misma canción de Spotify puede existir múltiples veces si aparece en varias playlists (relación ManyToOne simple). Los campos `releaseYear` y `releaseDate` se obtienen directamente de Spotify (fecha del álbum). Los campos `genre` y `language` se clasifican mediante ChatGPT API (GPT-4.1-nano). En playlists de Splitify, los campos `excluded` y `manuallyAdded` rastrean el estado de cada canción: `excluded=true` indica que el usuario eligió no restaurar la canción (se recuerda permanentemente); `manuallyAdded=true` indica que el usuario la agregó directamente en Spotify (se preserva aunque no esté en las fuentes). Canciones con `excluded=true` no se muestran en la vista de detalle ni se agregan a Spotify.
 +
 NOTE: Durante la fase de desarrollo, la sincronización se limita a las primeras 10 canciones por playlist para agilizar las pruebas. En la versión final se traerán todas las canciones (paginando con `limit=50` y siguiendo el campo `next` de la respuesta de Spotify).
+* La entidad `SongClassification` funciona como caché global de clasificaciones. Almacena el género e idioma clasificados por ChatGPT indexados por `spotifyId`. Al re-sincronizar, las clasificaciones existentes se preservan y solo se consulta ChatGPT para canciones nuevas.
 * La entidad `SplitifyPlaylistSource` registra la relación entre cada playlist de Splitify y sus playlists origen. Junto con los campos `filterType` y `filterValue` de `Playlist`, esta tabla permite al sistema re-evaluar las canciones de las fuentes y aplicar el mismo criterio original durante la actualización (RF2.2).
-* La entidad `Playlist` incluye campos agregados (`languages`, `genres`, `artists`) almacenados como JSON arrays. Estos campos se calculan a partir de las canciones clasificadas de la playlist y permiten mostrar dinámicamente los filtros disponibles en la creación personalizada (RF7) sin necesidad de consultar todas las canciones cada vez.
-* Liked Songs se almacena como una playlist con `spotifyId = "liked_songs"` e `imageUrl = null`.
+* Liked Songs se almacena como una playlist con `spotifyId = "liked_songs"` e `imageUrl = null`. La consulta de playlists ordena siempre Liked Songs primero mediante `ORDER BY CASE WHEN spotifyId = 'liked_songs' THEN 0 ELSE 1 END, id ASC`.
 
 '''
 
@@ -460,5 +472,7 @@ java -jar splitify.jar --spring.profiles.active=prod
 |2026-04-08 |1.5 |Implementación de RF3 (metadatos de canciones). Nuevo `ClassificationService`: clasificación de género e idioma via ChatGPT API (GPT-4.1-nano, comunicación via RestClient). Fechas de lanzamiento: Spotify provee fecha por defecto, MusicBrainz API corrige con fecha original de primera grabación (sección 7.3). Nuevos campos en Song: `albumName`, `releaseDate`. Dependencia `jackson-databind` agregada. Caché de clasificaciones en re-sincronización (preserva datos por `spotifyId`). Login page actualizada: características reflejan funciones implementadas.
 |2026-04-08 |1.6 |Implementación de RF4 (por idioma), RF5 (por género), RF6 (por fecha) y RF6.1 (combinado). Endpoint unificado `POST /api/playlists/create/combined` que acepta combinación de criterios. Canciones deduplicadas por spotifyId. Canciones multilingües se incluyen en todas las playlists de idiomas correspondientes (RN7). Todas las playlists ordenadas por fecha de lanzamiento (RN1). Frontend: botón "Crear Playlists" del OrganizeModal conectado al backend.
 |2026-04-09 |1.7 |Eliminada integración con MusicBrainz API. Fechas de lanzamiento ahora exclusivamente de Spotify. Eliminada sección 7.3 (MusicBrainz). Eliminado campo `decades` de Playlist. ClassificationService simplificado (solo ChatGPT). Filtro de décadas eliminado del modal Personalizado (RF7). Actualizado modelo de datos y estrategia de persistencia.
-|2026-04-09 |1.8 |Nueva entidad `SplitifyPlaylistSource` para rastrear playlists origen de cada playlist de Splitify. Nuevos campos en Playlist: `filterType` y `filterValue` para recordar el criterio de organización. Nota de desarrollo: sincronización limitada a 10 canciones por playlist (la versión final traerá todas). Endpoints de refresh actualizados con descripción detallada (RF2.2). Estrategia de persistencia actualizada con nueva entidad y nota de desarrollo.
+|2026-04-09 |1.8 |Nueva entidad `SplitifyPlaylistSource` para rastrear playlists origen de cada playlist de Splitify. Nuevos campos en Playlist: `filterType`, `filterValue` y `snapshotId` para recordar el criterio de organización y detectar cambios en sync incremental. Nota de desarrollo: sincronización limitada a 10 canciones por playlist (la versión final traerá todas). Endpoints de refresh actualizados con descripción detallada (RF2.2). Estrategia de persistencia actualizada con nueva entidad y nota de desarrollo. Sync incremental implementado: compara `snapshotId` de Spotify para evitar re-sincronizar playlists sin cambios.
+|2026-04-09 |1.9 |Refresh de playlists Splitify reescrito: ahora lee el estado real de la playlist en Spotify para detectar cambios manuales (canciones agregadas/eliminadas directamente). Usa `PUT /playlists/{id}/items` para reemplazar el contenido completo y corregir el orden por fecha. Campo `next` agregado a `TracksResponse` para paginación. Nuevo método `fetchSpotifyPlaylistTracks` para leer todas las canciones de una playlist. Nuevo método `replaceSpotifyPlaylistTracks` para reemplazar contenido. ClassificationService: clasificación en lotes de 20 con reintento (2 intentos). Nueva entidad `SongClassification` para caché global de clasificaciones. Eliminado caché in-memory de SpotifyService. Verificación de playlists Splitify eliminadas de Spotify durante el sync.
+|2026-04-09 |2.0 |Nuevos campos en Song: `excluded` (recuerda decisiones de no-restaurar permanentemente) y `manuallyAdded` (preserva canciones agregadas manualmente por el usuario en Spotify). Nuevo endpoint `GET /api/playlists/splitify/{id}/refresh/preview` para vista previa de cambios antes de actualizar. Lógica de refresh corregida: canciones eliminadas de playlists origen ahora se eliminan de la playlist Splitify; canciones manuales se preservan permanentemente. Playlist ordering: consulta con `ORDER BY CASE WHEN spotifyId = 'liked_songs' THEN 0 ELSE 1 END, id ASC` para orden consistente. Frontend: re-sincronización ahora actualiza también la lista de playlists Splitify. Estructura del proyecto actualizada: entidades `SongClassification` y `SplitifyPlaylistSource`, repositorios y DTOs faltantes añadidos. Servicio `PlaylistService` eliminado de documentación (no existe, toda la lógica está en `SpotifyService`). Campos inexistentes `languages`, `genres`, `artists` eliminados de entidad Playlist en documentación.
 |===

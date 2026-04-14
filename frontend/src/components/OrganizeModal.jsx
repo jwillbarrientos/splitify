@@ -32,7 +32,7 @@ function OptionCard({ icon: Icon, title, description, checked, onToggle }) {
   )
 }
 
-function OrganizeModal({ visible, onClose, selectedIds, onPlaylistsCreated }) {
+function OrganizeModal({ visible, onClose, selectedIds, onPlaylistsCreated, onOpenCustom }) {
   const [options, setOptions] = useState({
     idioma: false,
     genero: false,
@@ -126,17 +126,26 @@ function OrganizeModal({ visible, onClose, selectedIds, onPlaylistsCreated }) {
         </div>
 
         {/* Custom option - gradient border via wrapper */}
-        <div className="rounded-lg bg-gradient-to-r from-green-500 to-blue-500 p-[1px]">
-          <div className="flex flex-col gap-2 rounded-[7px] bg-[#1A1A1A] p-4">
+        <button
+          type="button"
+          onClick={onOpenCustom}
+          className="group rounded-lg bg-gradient-to-r from-green-500 to-blue-500 p-[1.5px] text-left transition duration-200 hover:scale-[1.015] hover:shadow-[0_0_24px_rgba(34,197,94,0.35)] active:scale-[0.99]"
+        >
+          <div className="flex flex-col gap-2 rounded-[7px] bg-[#1A1A1A] p-4 transition duration-200 group-hover:bg-[#202024]">
             <div className="flex items-center gap-2">
-              <SlidersHorizontal size={16} className="text-green-500" />
-              <span className="text-sm font-semibold text-white">Personalizado</span>
+              <SlidersHorizontal
+                size={16}
+                className="text-green-500 transition duration-200 group-hover:scale-110 group-hover:text-green-400"
+              />
+              <span className="text-sm font-semibold text-white transition group-hover:text-green-50">
+                Personalizado
+              </span>
             </div>
-            <p className="text-[13px] text-[#A1A1AA]">
+            <p className="text-[13px] text-[#A1A1AA] transition group-hover:text-[#D4D4D8]">
               Crea una playlist con criterios personalizados (Idioma, género, artista)
             </p>
           </div>
-        </div>
+        </button>
       </div>
     </div>
   )

@@ -10,18 +10,20 @@ const COVER_GRADIENTS = [
   'from-emerald-500 to-teal-400',
 ]
 
-function SplitifyCard({ playlist, selected, onToggleSelect, onViewDetails, onUpdate, onDelete }) {
+function SplitifyCard({ playlist, selected, onToggleSelect, onViewDetails, onUpdate, onDelete, refreshing = false }) {
   const gradientIndex = playlist.id % COVER_GRADIENTS.length
   const gradient = COVER_GRADIENTS[gradientIndex]
 
   return (
     <div
-      className={`flex flex-col gap-3 rounded-xl p-4 transition cursor-pointer ${
-        selected
-          ? 'border-2 border-green-500 bg-[#1A1A1A]'
-          : 'border border-[#27272A] bg-[#1A1A1A]'
+      className={`relative flex flex-col gap-3 rounded-xl p-4 transition cursor-pointer ${
+        refreshing
+          ? 'border-2 border-green-500/70 bg-[#1A1A1A] shadow-[0_0_24px_rgba(34,197,94,0.25)]'
+          : selected
+            ? 'border-2 border-green-500 bg-[#1A1A1A]'
+            : 'border border-[#27272A] bg-[#1A1A1A]'
       }`}
-      onClick={onToggleSelect}
+      onClick={refreshing ? undefined : onToggleSelect}
     >
       {/* Checkbox */}
       <div className="flex justify-end">
@@ -62,15 +64,23 @@ function SplitifyCard({ playlist, selected, onToggleSelect, onViewDetails, onUpd
       {/* Action buttons */}
       <div className="flex w-full gap-2">
         <button
-          onClick={(e) => { e.stopPropagation(); onUpdate() }}
-          className="flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium text-green-500 transition hover:bg-green-500/10"
+          onClick={(e) => { e.stopPropagation(); if (!refreshing) onUpdate() }}
+          disabled={refreshing}
+          className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition ${
+            refreshing
+              ? 'bg-gradient-to-r from-green-500 to-blue-500 text-black cursor-wait'
+              : 'text-green-500 hover:bg-green-500/15 active:scale-95 active:bg-green-500/25'
+          }`}
         >
-          <RefreshCw size={16} />
-          Actualizar
+          <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
+          {refreshing ? 'Actualizando...' : 'Actualizar'}
         </button>
         <button
           onClick={(e) => { e.stopPropagation(); onDelete() }}
-          className="flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium text-red-500 transition hover:bg-red-500/10"
+          disabled={refreshing}
+          className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium text-red-500 transition ${
+            refreshing ? 'opacity-40 cursor-not-allowed' : 'hover:bg-red-500/15 active:scale-95 active:bg-red-500/25'
+          }`}
         >
           <Trash2 size={16} />
           Eliminar

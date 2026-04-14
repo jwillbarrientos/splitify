@@ -14,7 +14,8 @@ public class SpotifyDto {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record PlaylistItem(String id, String name, List<Image> images,
                                @JsonAlias("items") TracksRef tracks,
-                               Owner owner, boolean collaborative) {}
+                               Owner owner, boolean collaborative,
+                               @JsonProperty("snapshot_id") String snapshotId) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Owner(String id) {}
@@ -26,7 +27,7 @@ public class SpotifyDto {
     public record TracksRef(int total) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record TracksResponse(List<TrackWrapper> items) {}
+    public record TracksResponse(List<TrackWrapper> items, String next) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record TrackWrapper(@JsonAlias("item") Track track) {}

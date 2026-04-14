@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Music, Sparkles, RefreshCw, FolderOpen, Trash2, CheckCheck } from 'lucide-react'
-import { getPlaylists, syncPlaylists, deletePlaylists, getSplitifyPlaylists, deleteSplitifyPlaylist, deleteSplitifyPlaylists } from '../services/api'
+import { getPlaylists, syncPlaylists, deletePlaylists, getSplitifyPlaylists, deleteSplitifyPlaylist, deleteSplitifyPlaylists, previewRefresh, refreshSplitifyPlaylist, refreshSplitifyPlaylists } from '../services/api'
 import SyncOverlay from '../components/SyncOverlay'
 import PlaylistCard from '../components/PlaylistCard'
 import SplitifyCard from '../components/SplitifyCard'
 import OrganizeModal from '../components/OrganizeModal'
+import CustomOrganizeModal from '../components/CustomOrganizeModal'
+import ErrorModal from '../components/ErrorModal'
 
 function EmptyState({ icon: Icon, title, description, buttonLabel, buttonIcon: BtnIcon, onButtonClick }) {
   return (
@@ -37,6 +39,21 @@ function MainPage() {
   const [selectedIds, setSelectedIds] = useState(new Set())
   const [splitifySelectedIds, setSplitifySelectedIds] = useState(new Set())
   const [showOrganizeModal, setShowOrganizeModal] = useState(false)
+  const [showCustomModal, setShowCustomModal] = useState(false)
+  const [errorModal, setErrorModal] = useState(null) // { title, message, tip }
+  const [refreshingIds, setRefreshingIds] = useState(new Set())
+  const [refreshingBatch, setRefreshingBatch] = useState(false)
+
+  const addRefreshing = (id) => setRefreshingIds(prev => {
+    const next = new Set(prev)
+    next.add(id)
+    return next
+  })
+  const removeRefreshing = (id) => setRefreshingIds(prev => {
+    const next = new Set(prev)
+    next.delete(id)
+    return next
+  })
 
   useEffect(() => {
     Promise.all([getPlaylists(), getSplitifyPlaylists()])
@@ -55,8 +72,11 @@ function MainPage() {
     setSyncing(true)
     try {
       const data = await syncPlaylists()
+      const splitifyData = await getSplitifyPlaylists()
       setPlaylists(data)
+      setSplitifyList(splitifyData)
       setSelectedIds(new Set())
+      setSplitifySelectedIds(new Set())
     } catch (err) {
       console.error('Error syncing playlists:', err)
     } finally {
@@ -107,6 +127,28 @@ function MainPage() {
     setShowOrganizeModal(false)
   }
 
+  const handleOpenCustom = () => {
+    setShowOrganizeModal(false)
+    setShowCustomModal(true)
+  }
+
+  const handleCustomPlaylistCreated = (newPlaylist) => {
+    if (newPlaylist) {
+      setSplitifyList(prev => [...prev, newPlaylist])
+    }
+    setSelectedIds(new Set())
+    setShowCustomModal(false)
+  }
+
+  const handleCustomError = (message) => {
+    setShowCustomModal(false)
+    setErrorModal({
+      title: 'Error al crear playlist',
+      message: message || 'No se pudieron encontrar canciones que coincidan con los criterios seleccionados para crear la playlist solicitada.',
+      tip: 'Intenta ampliar tus criterios de búsqueda o seleccionar diferentes opciones de idioma, género o artista.',
+    })
+  }
+
   const handleDeleteSplitify = async (id) => {
     try {
       await deleteSplitifyPlaylist(id)
@@ -132,6 +174,87 @@ function MainPage() {
     }
   }
 
+  const [refreshConfirm, setRefreshConfirm] = useState(null) // { id, preview } or { ids, mode: 'batch' }
+
+  const handleRefreshSplitify = async (id) => {
+    if (refreshingIds.has(id)) return
+    addRefreshing(id)
+    try {
+      const preview = await previewRefresh(id)
+      if (preview.removedByUser && preview.removedByUser.length > 0) {
+        // Hay canciones eliminadas manualmente → pedir confirmación.
+        // Mantenemos refreshing hasta que el usuario confirme/cancele.
+        setRefreshConfirm({ id, preview })
+      } else {
+        // No hay conflictos, actualizar directamente
+        const updated = await refreshSplitifyPlaylist(id, false)
+        if (updated === null) {
+          setSplitifyList(prev => prev.filter(p => p.id !== id))
+        } else {
+          setSplitifyList(prev => prev.map(p => p.id === id ? updated : p))
+        }
+        removeRefreshing(id)
+      }
+    } catch (err) {
+      console.error('Error refreshing splitify playlist:', err)
+      removeRefreshing(id)
+    }
+  }
+
+  const handleConfirmRefresh = async (restoreRemoved) => {
+    const { id } = refreshConfirm
+    setRefreshConfirm(null)
+    try {
+      const updated = await refreshSplitifyPlaylist(id, restoreRemoved)
+      if (updated === null) {
+        setSplitifyList(prev => prev.filter(p => p.id !== id))
+      } else {
+        setSplitifyList(prev => prev.map(p => p.id === id ? updated : p))
+      }
+    } catch (err) {
+      console.error('Error refreshing splitify playlist:', err)
+    } finally {
+      removeRefreshing(id)
+    }
+  }
+
+  const handleCancelRefreshConfirm = () => {
+    if (refreshConfirm) removeRefreshing(refreshConfirm.id)
+    setRefreshConfirm(null)
+  }
+
+  const handleRefreshSplitifySelected = async () => {
+    if (refreshingBatch || splitifySelectedCount === 0) return
+    const ids = Array.from(splitifySelectedIds)
+    setRefreshingBatch(true)
+    setRefreshingIds(prev => {
+      const next = new Set(prev)
+      ids.forEach(i => next.add(i))
+      return next
+    })
+    try {
+      const updated = await refreshSplitifyPlaylists(ids, false)
+      const updatedIds = new Set(updated.map(p => p.id))
+      setSplitifyList(prev => {
+        const remaining = prev.filter(p => !splitifySelectedIds.has(p.id) || updatedIds.has(p.id))
+        return remaining.map(p => {
+          const match = updated.find(u => u.id === p.id)
+          return match || p
+        })
+      })
+      setSplitifySelectedIds(new Set())
+    } catch (err) {
+      console.error('Error refreshing selected splitify playlists:', err)
+    } finally {
+      setRefreshingBatch(false)
+      setRefreshingIds(prev => {
+        const next = new Set(prev)
+        ids.forEach(i => next.delete(i))
+        return next
+      })
+    }
+  }
+
   const selectedCount = selectedIds.size
   const splitifySelectedCount = splitifySelectedIds.size
 
@@ -143,7 +266,67 @@ function MainPage() {
         onClose={() => setShowOrganizeModal(false)}
         selectedIds={Array.from(selectedIds)}
         onPlaylistsCreated={handlePlaylistsCreated}
+        onOpenCustom={handleOpenCustom}
       />
+      <CustomOrganizeModal
+        visible={showCustomModal}
+        onClose={() => setShowCustomModal(false)}
+        selectedIds={Array.from(selectedIds)}
+        onPlaylistCreated={handleCustomPlaylistCreated}
+        onError={handleCustomError}
+      />
+      <ErrorModal
+        visible={errorModal !== null}
+        title={errorModal?.title}
+        message={errorModal?.message}
+        tip={errorModal?.tip}
+        onClose={() => setErrorModal(null)}
+      />
+
+      {/* Modal de confirmación de refresh */}
+      {refreshConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="flex flex-col gap-5 rounded-2xl border border-zinc-800 bg-[#141414] p-6 shadow-2xl" style={{ maxWidth: '480px', width: '90%' }}>
+            <div className="flex flex-col gap-2">
+              <h3 className="text-lg font-bold text-white">Canciones eliminadas detectadas</h3>
+              <p className="text-sm text-zinc-400">
+                Se detectaron {refreshConfirm.preview.removedByUser.length} cancion{refreshConfirm.preview.removedByUser.length === 1 ? '' : 'es'} que eliminaste manualmente desde Spotify:
+              </p>
+            </div>
+            <div className="flex flex-col gap-1.5 max-h-48 overflow-y-auto rounded-lg bg-[#0A0A0A] p-3">
+              {refreshConfirm.preview.removedByUser.map(song => (
+                <div key={song.spotifyId} className="flex items-center gap-2 text-sm">
+                  <span className="text-red-400">-</span>
+                  <span className="text-zinc-300 truncate">{song.name}</span>
+                  <span className="text-zinc-600">·</span>
+                  <span className="text-zinc-500 truncate">{song.artist}</span>
+                </div>
+              ))}
+            </div>
+            <p className="text-sm text-zinc-400">¿Quieres volver a agregarlas o solo agregar las canciones nuevas?</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => handleConfirmRefresh(true)}
+                className="flex-1 rounded-lg bg-gradient-to-r from-green-500 to-blue-500 py-2.5 text-sm font-semibold text-black transition hover:opacity-90"
+              >
+                Restaurar todas
+              </button>
+              <button
+                onClick={() => handleConfirmRefresh(false)}
+                className="flex-1 rounded-lg border border-zinc-700 bg-[#0A0A0A] py-2.5 text-sm font-medium text-white transition hover:bg-[#1A1A1A]"
+              >
+                Solo nuevas
+              </button>
+              <button
+                onClick={handleCancelRefreshConfirm}
+                className="rounded-lg border border-zinc-800 bg-[#0A0A0A] px-4 py-2.5 text-sm font-medium text-zinc-500 transition hover:bg-[#1A1A1A] hover:text-zinc-300"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <main className="flex flex-col gap-6 p-8">
         {/* Sección: Tus Playlists de Spotify */}
@@ -252,10 +435,18 @@ function MainPage() {
                   Eliminar Seleccionados
                 </button>
                 <button
-                  className="flex items-center gap-2 rounded-lg border border-green-900/50 bg-[#0A0A0A] px-4 py-2.5 text-sm font-medium text-green-400 transition opacity-40 cursor-not-allowed"
+                  onClick={splitifySelectedCount > 0 && !refreshingBatch ? handleRefreshSplitifySelected : undefined}
+                  disabled={refreshingBatch}
+                  className={`flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium transition ${
+                    refreshingBatch
+                      ? 'border-green-500/80 bg-gradient-to-r from-green-500 to-blue-500 text-black cursor-wait shadow-[0_0_16px_rgba(34,197,94,0.4)]'
+                      : splitifySelectedCount > 0
+                        ? 'border-green-900/50 bg-[#0A0A0A] text-green-400 hover:bg-green-500/20 hover:border-green-500/70 hover:text-green-300 active:scale-95 cursor-pointer'
+                        : 'border-green-900/50 bg-[#0A0A0A] text-green-400 opacity-40 cursor-not-allowed'
+                  }`}
                 >
-                  <RefreshCw size={16} />
-                  Actualizar Seleccionados
+                  <RefreshCw size={16} className={refreshingBatch ? 'animate-spin' : ''} />
+                  {refreshingBatch ? 'Actualizando...' : 'Actualizar Seleccionados'}
                 </button>
               </div>
             )}
@@ -276,8 +467,9 @@ function MainPage() {
                   selected={splitifySelectedIds.has(playlist.id)}
                   onToggleSelect={() => toggleSplitifySelect(playlist.id)}
                   onViewDetails={() => navigate(`/playlist/${playlist.id}`, { state: { playlist } })}
-                  onUpdate={() => {}}
+                  onUpdate={() => handleRefreshSplitify(playlist.id)}
                   onDelete={() => handleDeleteSplitify(playlist.id)}
+                  refreshing={refreshingIds.has(playlist.id)}
                 />
               ))}
             </div>

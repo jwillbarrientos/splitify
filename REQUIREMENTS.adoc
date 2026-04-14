@@ -2,7 +2,7 @@
 
 == Splitify
 
-*Versión:* 1.8
+*Versión:* 2.0
 *Fecha:* 2026-04-09
 *Autor:* Barri
 
@@ -182,24 +182,35 @@ El usuario puede acceder a cualquier playlist (de usuario o de Splitify) para co
 
 === RF2.2 — Actualización de Playlists de Splitify
 
-*Descripción:* El sistema permitirá al usuario actualizar las playlists de Splitify para reflejar los cambios ocurridos en las playlists origen (las playlists que fueron seleccionadas al momento de crear la playlist de Splitify). La actualización puede realizarse de forma individual (botón "Actualizar" en cada playlist de Splitify) o en lote (botón "Actualizar seleccionadas" en RF2.1). Para esto, el sistema debe recordar qué playlists origen y qué criterio de organización (idioma, género, fecha de lanzamiento) se usaron al crear cada playlist de Splitify.
+*Descripción:* El sistema permitirá al usuario actualizar las playlists de Splitify para reflejar tanto los cambios ocurridos en las playlists origen como los cambios manuales realizados directamente en Spotify. La actualización puede realizarse de forma individual (botón "Actualizar" en cada playlist de Splitify) o en lote (botón "Actualizar seleccionadas" en RF2.1). Para esto, el sistema debe recordar qué playlists origen y qué criterio de organización (idioma, género, fecha de lanzamiento) se usaron al crear cada playlist de Splitify.
 
 *Flujo:*
 1. El usuario presiona "Actualizar" en una playlist de Splitify (o selecciona varias y presiona "Actualizar seleccionadas").
-2. El sistema consulta el estado actual de las playlists origen en Spotify.
-3. El sistema compara las canciones actuales de las playlists origen con las canciones de la playlist de Splitify y aplica los cambios necesarios:
-   - *Canciones nuevas en las playlists origen:* se clasifican (género e idioma) y, si cumplen con el criterio de la playlist de Splitify (ej: mismo idioma o mismo género), se agregan en la posición correcta según la fecha de lanzamiento (manteniéndose la ordenación de RN1).
-   - *Canciones eliminadas de las playlists origen:* se eliminan de la playlist de Splitify.
-   - *Playlist origen eliminada:* si una de las playlists origen ya no existe en Spotify, se eliminan de la playlist de Splitify las canciones que provenían de esa fuente.
-4. Si tras la actualización la playlist de Splitify queda sin canciones, se elimina automáticamente tanto de Spotify como de la base de datos.
-5. Los cambios se reflejan tanto en Spotify (agregar/eliminar canciones de la playlist) como en la base de datos local.
+2. El sistema genera una *vista previa* de los cambios detectados comparando el estado real en Spotify, la base de datos y las playlists origen.
+3. Si se detectan canciones que el usuario eliminó manualmente desde Spotify (y que aún existen en las playlists origen), se muestra un diálogo de confirmación preguntando si desea restaurarlas ("Restaurar todas") o solo agregar las canciones nuevas ("Solo nuevas"). Si el usuario elige "Solo nuevas", la decisión se recuerda permanentemente y no se vuelve a preguntar por esas canciones en actualizaciones futuras.
+4. El sistema construye la lista final de canciones aplicando las siguientes reglas:
+   - *Canciones de las playlists origen:* se mantienen si siguen existiendo en las playlists origen y cumplen el criterio. Si una canción fue eliminada de todas las playlists origen, se elimina también de la playlist de Splitify.
+   - *Canciones agregadas manualmente por el usuario en Spotify:* se conservan permanentemente en actualizaciones sucesivas, independientemente de si existen en las playlists origen.
+   - *Canciones eliminadas manualmente por el usuario desde Spotify:* el sistema pregunta solo la primera vez. Si el usuario elige no restaurarlas, se marcan como excluidas y no se vuelven a agregar ni a preguntar. Si el usuario vuelve a agregar manualmente en Spotify una canción previamente excluida, la exclusión se revoca automáticamente.
+   - *Canciones nuevas en las playlists origen:* si son verdaderamente nuevas (nunca estuvieron en la playlist de Splitify ni fueron excluidas), se clasifican (género e idioma) y, si cumplen con el criterio de la playlist, se agregan.
+   - *Playlist origen eliminada:* si una de las playlists origen ya no existe, se elimina la referencia a esa fuente.
+5. Se clasifica cualquier canción sin género/idioma (ej: canciones agregadas manualmente desde Spotify).
+6. Se reordena la playlist completa por fecha de lanzamiento (RN1) y se reemplaza el contenido en Spotify para corregir el orden.
+7. Si tras la actualización la playlist de Splitify queda sin canciones, se elimina automáticamente tanto de Spotify como de la base de datos.
+8. Si la playlist de Splitify fue eliminada desde Spotify (ya no existe en la cuenta del usuario), se detecta automáticamente y se elimina de la base de datos.
 
 *Criterios de aceptación:*
 - El sistema registra qué playlists origen y qué criterio de organización se usaron para crear cada playlist de Splitify.
-- Las canciones nuevas que cumplan el criterio se insertan en la posición correcta según fecha de lanzamiento.
-- Las canciones eliminadas de las playlists origen se eliminan de la playlist de Splitify.
-- Si una playlist origen fue eliminada de Spotify, sus canciones se eliminan de la playlist de Splitify.
+- Antes de actualizar, el sistema muestra una vista previa con las canciones eliminadas manualmente desde Spotify (si las hay) y ofrece un diálogo de confirmación.
+- Si el usuario elige no restaurar canciones eliminadas, la decisión se recuerda permanentemente (campo `excluded` en la entidad Song). No se vuelve a preguntar en actualizaciones futuras.
+- Las canciones agregadas manualmente desde Spotify se conservan permanentemente (campo `manuallyAdded` en la entidad Song), no solo en la primera actualización.
+- Las canciones eliminadas de las playlists origen se eliminan de la playlist de Splitify al actualizar.
+- Si el usuario re-agrega en Spotify una canción previamente excluida, la exclusión se revoca automáticamente.
+- Las canciones nuevas de las playlists origen que cumplan el criterio se agregan automáticamente.
+- Tras la actualización, todas las canciones se reordenan por fecha de lanzamiento en Spotify.
+- Si una playlist origen fue eliminada, se elimina la referencia a esa fuente.
 - Si la playlist de Splitify queda vacía tras la actualización, se elimina automáticamente de Spotify y de la base de datos.
+- Si la playlist de Splitify fue eliminada desde Spotify, se detecta y se elimina de la base de datos.
 - La actualización se refleja tanto en Spotify como en la base de datos local.
 
 '''
@@ -338,4 +349,6 @@ El usuario puede acceder a cualquier playlist (de usuario o de Splitify) para co
 |2026-04-08 |1.6 |RF4 (por idioma), RF5 (por género), RF6 (por fecha de lanzamiento) y RF6.1 (creación combinada) implementados. Endpoint unificado para las tres operaciones genéricas.
 |2026-04-09 |1.7 |Eliminada integración con MusicBrainz: las fechas de lanzamiento se obtienen exclusivamente de Spotify (fecha del álbum). Sección 3.3 (Épocas/Décadas) eliminada. Eliminado filtro de décadas del modo personalizado (RF7): solo quedan idioma, género y artista. RN3, RN6 actualizadas.
 |2026-04-09 |1.8 |RF1.1 actualizado: la sincronización obtiene todas las canciones de cada playlist (no solo las primeras 10; el límite de 10 se mantiene temporalmente en desarrollo). Nuevo RF2.2 (actualización de playlists de Splitify): detalla el comportamiento del botón "Actualizar" — agrega canciones nuevas en posición correcta, elimina canciones removidas de las fuentes, limpia canciones de playlists origen eliminadas. Nueva RN8: el sistema debe persistir las playlists origen y el criterio de organización de cada playlist de Splitify.
+|2026-04-09 |1.9 |RF2.2 ampliado: la actualización ahora detecta cambios manuales hechos desde Spotify (canciones agregadas/eliminadas directamente en la playlist de Splitify). Canciones agregadas manualmente se conservan y clasifican. Canciones eliminadas manualmente no se re-agregan. Se reordena la playlist completa por fecha de lanzamiento tras cada actualización. Se detecta si la playlist fue eliminada desde Spotify.
+|2026-04-09 |2.0 |RF2.2 reescrito: nuevo flujo con vista previa y diálogo de confirmación para canciones eliminadas manualmente. El sistema ahora recuerda permanentemente las decisiones de exclusión (`excluded`) y las canciones agregadas manualmente (`manuallyAdded`). Las canciones eliminadas de las playlists origen se eliminan de la playlist de Splitify. La re-sincronización ahora también actualiza la lista de playlists de Splitify en el frontend.
 |===

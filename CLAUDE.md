@@ -76,11 +76,11 @@ npm run lint
 - **Controller:** `controller/SpaController.java` — forwards non-API routes to `index.html` (supports nested routes for React Router)
 - **Controller:** `controller/PlaylistController.java` — REST endpoints for sync, list, detail, songs
 - **Controller:** `controller/UserController.java` — REST endpoint for user profile (`GET /api/user/me`)
-- **Service:** `service/SpotifyService.java` — Spotify API communication, playlist/song persistence, classification cache
-- **Service:** `service/ClassificationService.java` — ChatGPT API (genre/language classification)
-- **Models:** `model/Playlist.java`, `model/Song.java` — JPA entities with SQLite
-- **DTOs:** `dto/SpotifyDto.java` (Spotify API response records), `dto/PlaylistDto.java`, `dto/SongDto.java`, `dto/UserProfileDto.java`
-- **Repositories:** `repository/PlaylistRepository.java`, `repository/SongRepository.java`
+- **Service:** `service/SpotifyService.java` — Spotify API communication, playlist/song persistence, sync incremental, refresh Splitify playlists
+- **Service:** `service/ClassificationService.java` — ChatGPT API (genre/language classification, batched with retry, global cache)
+- **Models:** `model/Playlist.java`, `model/Song.java`, `model/SongClassification.java` (global classification cache), `model/SplitifyPlaylistSource.java` (source tracking for Splitify playlists) — JPA entities with SQLite
+- **DTOs:** `dto/SpotifyDto.java` (Spotify API response records), `dto/PlaylistDto.java`, `dto/SongDto.java`, `dto/UserProfileDto.java`, `dto/CreatePlaylistsRequest.java`, `dto/RefreshPreviewDto.java`
+- **Repositories:** `repository/PlaylistRepository.java`, `repository/SongRepository.java`, `repository/SongClassificationRepository.java`, `repository/SplitifyPlaylistSourceRepository.java`
 - **Config file:** `src/main/resources/application.properties`
 - All REST endpoints go under `/api/**`
 

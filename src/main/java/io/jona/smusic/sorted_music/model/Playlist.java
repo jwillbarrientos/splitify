@@ -27,4 +27,10 @@ public class Playlist {
 
     @Builder.Default
     private boolean splitify = false;
+
+    private String snapshotId;
+
+    private String filterType;
+
+    private String filterValue;
 }

@@ -74,6 +74,55 @@ export async function createOrganizedPlaylists(playlistIds, options) {
   return res.json();
 }
 
+export async function getAvailableFilters(playlistIds) {
+  const qs = playlistIds.map(id => `playlistIds=${encodeURIComponent(id)}`).join('&');
+  const res = await apiFetch(`${API_BASE}/playlists/available-filters?${qs}`);
+  if (!res.ok) throw new Error('Failed to fetch available filters');
+  return res.json();
+}
+
+export async function createCustomPlaylist({ playlistIds, languages, genres, artists, name }) {
+  const res = await apiFetch(`${API_BASE}/playlists/create/custom`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ playlistIds, languages, genres, artists, name }),
+  });
+  if (!res.ok) {
+    let message = 'No se pudo crear la playlist personalizada.';
+    try {
+      const body = await res.json();
+      if (body && body.message) message = body.message;
+    } catch {
+      // body no es JSON, usar mensaje por defecto
+    }
+    throw new Error(message);
+  }
+  return res.json();
+}
+
+export async function previewRefresh(id) {
+  const res = await apiFetch(`${API_BASE}/playlists/splitify/${id}/refresh/preview`);
+  if (!res.ok) throw new Error('Failed to preview refresh');
+  return res.json();
+}
+
+export async function refreshSplitifyPlaylist(id, restoreRemoved = false) {
+  const res = await apiFetch(`${API_BASE}/playlists/splitify/${id}/refresh?restoreRemoved=${restoreRemoved}`, { method: 'PUT' });
+  if (res.status === 204) return null;
+  if (!res.ok) throw new Error('Failed to refresh playlist');
+  return res.json();
+}
+
+export async function refreshSplitifyPlaylists(ids, restoreRemoved = false) {
+  const res = await apiFetch(`${API_BASE}/playlists/splitify/batch/refresh?restoreRemoved=${restoreRemoved}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(ids),
+  });
+  if (!res.ok) throw new Error('Failed to refresh playlists');
+  return res.json();
+}
+
 export async function deleteSplitifyPlaylists(ids) {
   const res = await apiFetch(`${API_BASE}/playlists/splitify`, {
     method: 'DELETE',
