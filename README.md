@@ -13,7 +13,7 @@ Aplicación web que organiza tus playlists de Spotify por **idioma**, **género 
 
 Detalle completo en `REQUIREMENTS.adoc` y `ARCHITECTURE.adoc`.
 
-https://github.com/user-attachments/assets/eb34b5c4-20a2-4d76-9ec8-9d1bd07cbc19
+https://github.com/user-attachments/assets/74ce2c59-ac1c-4d40-a940-ec9f0c735f47
 
 ## Requisitos Previos
 
