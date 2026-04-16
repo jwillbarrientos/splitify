@@ -788,7 +788,7 @@ public class SpotifyService {
 
     // ──── Refresh helpers ───────────────────────────────────────────
 
-    // Método central del refresh: decide qué canciones quedan en la playlist Splitify.
+    // Métod0 central del refresh: decide qué canciones quedan en la playlist Splitify.
     // Reconcilia 3 fuentes: Spotify (estado real), BD (último sync), y fuentes (playlists origen).
     //
     // La lógica en 3 pasadas:

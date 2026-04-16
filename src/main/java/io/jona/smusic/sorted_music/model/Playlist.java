@@ -9,11 +9,7 @@ import lombok.*;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class Playlist {
-
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+public class Playlist extends BaseEntity {
 
     private String spotifyId;
 

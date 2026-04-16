@@ -9,8 +9,12 @@ async function apiFetch(url, options = {}) {
   return res;
 }
 
+// No usa apiFetch porque esta llamada decide el estado de auth del frontend:
+// si devuelve 401/403 queremos manejarlo en el componente (redirigir via React Router),
+// no hacer un reload completo con window.location.href.
 export async function getUserProfile() {
-  const res = await apiFetch(`${API_BASE}/user/me`);
+  const res = await fetch(`${API_BASE}/user/me`);
+  if (res.status === 401 || res.status === 403) return null;
   if (!res.ok) throw new Error('Failed to fetch user profile');
   return res.json();
 }

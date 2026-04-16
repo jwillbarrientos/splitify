@@ -9,11 +9,7 @@ import lombok.*;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class SongClassification {
-
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+public class SongClassification extends BaseEntity {
 
     @Column(unique = true, nullable = false)
     private String spotifyId;
