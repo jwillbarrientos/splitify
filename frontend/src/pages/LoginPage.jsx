@@ -1,6 +1,29 @@
+import { useState, useEffect } from 'react'
+import { Navigate } from 'react-router-dom'
 import { Music2 } from 'lucide-react'
+import { getUserProfile } from '../services/api'
 
 function LoginPage() {
+  // Mismo patron que AuthLayout: verificamos si ya hay sesion activa
+  // para no obligar al usuario a volver a autorizar a Spotify si ya lo hizo.
+  const [authStatus, setAuthStatus] = useState('loading')
+
+  useEffect(() => {
+    getUserProfile()
+      .then((profile) => setAuthStatus(profile ? 'authenticated' : 'unauthenticated'))
+      .catch(() => setAuthStatus('unauthenticated'))
+  }, [])
+
+  // Mientras verifica, no mostramos la pagina de login (evita el parpadeo).
+  if (authStatus === 'loading') {
+    return <div className="min-h-screen bg-[#0A0A0A]" />
+  }
+
+  // Ya esta logueado: lo mandamos al home, no tiene sentido que vea /login.
+  if (authStatus === 'authenticated') {
+    return <Navigate to="/" replace />
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-green-500 via-blue-500 to-purple-500">
       <div className="flex w-[420px] flex-col gap-6 rounded-2xl bg-[#1A1A1A] p-8 shadow-[0_4px_24px_rgba(0,0,0,0.25)]">

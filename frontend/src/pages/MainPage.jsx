@@ -132,6 +132,11 @@ function MainPage() {
     setShowCustomModal(true)
   }
 
+  const handleBackToOrganize = () => {
+    setShowCustomModal(false)
+    setShowOrganizeModal(true)
+  }
+
   const handleCustomPlaylistCreated = (newPlaylist) => {
     if (newPlaylist) {
       setSplitifyList(prev => [...prev, newPlaylist])
@@ -271,6 +276,7 @@ function MainPage() {
       <CustomOrganizeModal
         visible={showCustomModal}
         onClose={() => setShowCustomModal(false)}
+        onBack={handleBackToOrganize}
         selectedIds={Array.from(selectedIds)}
         onPlaylistCreated={handleCustomPlaylistCreated}
         onError={handleCustomError}
@@ -437,16 +443,16 @@ function MainPage() {
                 <button
                   onClick={splitifySelectedCount > 0 && !refreshingBatch ? handleRefreshSplitifySelected : undefined}
                   disabled={refreshingBatch}
-                  className={`flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium transition ${
+                  className={`flex items-center gap-2 rounded-lg border border-green-900/50 bg-[#0A0A0A] px-4 py-2.5 text-sm font-medium text-green-400 transition ${
                     refreshingBatch
-                      ? 'border-green-500/80 bg-gradient-to-r from-green-500 to-blue-500 text-black cursor-wait shadow-[0_0_16px_rgba(34,197,94,0.4)]'
+                      ? 'cursor-wait'
                       : splitifySelectedCount > 0
-                        ? 'border-green-900/50 bg-[#0A0A0A] text-green-400 hover:bg-green-500/20 hover:border-green-500/70 hover:text-green-300 active:scale-95 cursor-pointer'
-                        : 'border-green-900/50 bg-[#0A0A0A] text-green-400 opacity-40 cursor-not-allowed'
+                        ? 'hover:bg-green-500/20 hover:border-green-500/70 hover:text-green-300 active:scale-95 cursor-pointer'
+                        : 'opacity-40 cursor-not-allowed'
                   }`}
                 >
                   <RefreshCw size={16} className={refreshingBatch ? 'animate-spin' : ''} />
-                  {refreshingBatch ? 'Actualizando...' : 'Actualizar Seleccionados'}
+                  Actualizar Seleccionados
                 </button>
               </div>
             )}

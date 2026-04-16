@@ -45,7 +45,7 @@ function FilterList({ icon: Icon, title, items, selected, onToggle }) {
   )
 }
 
-function CustomOrganizeModal({ visible, onClose, selectedIds, onPlaylistCreated, onError }) {
+function CustomOrganizeModal({ visible, onClose, onBack, selectedIds, onPlaylistCreated, onError }) {
   const [loading, setLoading] = useState(false)
   const [creating, setCreating] = useState(false)
   const [filters, setFilters] = useState({ languages: [], genres: [], artists: [] })
@@ -178,7 +178,7 @@ function CustomOrganizeModal({ visible, onClose, selectedIds, onPlaylistCreated,
         {/* Botones */}
         <div className="flex gap-3">
           <button
-            onClick={onClose}
+            onClick={onBack}
             disabled={creating}
             className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-[#27272A] bg-[#0A0A0A] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[#27272A] disabled:opacity-50"
           >

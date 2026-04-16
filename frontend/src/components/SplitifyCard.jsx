@@ -65,15 +65,14 @@ function SplitifyCard({ playlist, selected, onToggleSelect, onViewDetails, onUpd
       <div className="flex w-full gap-2">
         <button
           onClick={(e) => { e.stopPropagation(); if (!refreshing) onUpdate() }}
-          disabled={refreshing}
-          className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition ${
+          disabled={refreshing} className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium text-green-500 transition ${
             refreshing
-              ? 'bg-gradient-to-r from-green-500 to-blue-500 text-black cursor-wait'
-              : 'text-green-500 hover:bg-green-500/15 active:scale-95 active:bg-green-500/25'
+              ? 'cursor-wait'
+              : 'hover:bg-green-500/15 active:scale-95 active:bg-green-500/25'
           }`}
         >
           <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
-          {refreshing ? 'Actualizando...' : 'Actualizar'}
+          Actualizar
         </button>
         <button
           onClick={(e) => { e.stopPropagation(); onDelete() }}
