@@ -1,5 +1,7 @@
 package io.jona.smusic.sorted_music.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.jona.smusic.sorted_music.dto.AvailableFiltersDto;
 import io.jona.smusic.sorted_music.dto.PlaylistDto;
 import io.jona.smusic.sorted_music.dto.RefreshPreviewDto;
@@ -44,6 +46,7 @@ public class SpotifyService {
     private final SongRepository songRepository;
     private final SplitifyPlaylistSourceRepository sourceRepository;
     private final ClassificationService classificationService;
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     // ──── Public API ────────────────────────────────────────────────
 
@@ -396,6 +399,14 @@ public class SpotifyService {
             throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
                     "No se pudo crear la playlist personalizada.");
         }
+
+        // Persistir los filtros custom para poder reaplicarlos en futuros refreshes
+        playlistRepository.findById(created.id()).ifPresent(p -> {
+            p.setCustomLanguages(toJsonArray(languageSet));
+            p.setCustomGenres(toJsonArray(genreSet));
+            p.setCustomArtists(toJsonArray(artistSet));
+            playlistRepository.save(p);
+        });
         return created;
     }
 
@@ -738,18 +749,29 @@ public class SpotifyService {
             }
         }
 
-        return applyFilter(sourceSongs, splitifyPlaylist.getFilterType(),
-                splitifyPlaylist.getFilterValue());
+        return applyFilter(sourceSongs, splitifyPlaylist);
     }
 
     // Aplica el filtro original de la playlist Splitify. filterType puede ser:
     //   - "language": solo canciones de ese idioma
     //   - "genre": solo canciones de ese género
     //   - "releaseDate" o null: sin filtro, devuelve todas (se ordenan después)
-    //   - "custom": no pasa por aquí (las custom se filtran en createCustomPlaylist)
-    private List<Song> applyFilter(List<Song> songs, String filterType, String filterValue) {
+    //   - "custom": usa los filtros combinados (idiomas + géneros + artistas) guardados en la playlist
+    private List<Song> applyFilter(List<Song> songs, Playlist splitifyPlaylist) {
+        String filterType = splitifyPlaylist.getFilterType();
+        String filterValue = splitifyPlaylist.getFilterValue();
         if (filterType == null || "releaseDate".equals(filterType)) {
             return new ArrayList<>(songs);
+        }
+        if ("custom".equals(filterType)) {
+            Set<String> langs = parseJsonSet(splitifyPlaylist.getCustomLanguages());
+            Set<String> gens = parseJsonSet(splitifyPlaylist.getCustomGenres());
+            Set<String> arts = parseJsonSet(splitifyPlaylist.getCustomArtists());
+            return songs.stream()
+                    .filter(s -> matchesLanguages(s, langs))
+                    .filter(s -> matchesGenres(s, gens))
+                    .filter(s -> matchesArtists(s, arts))
+                    .collect(Collectors.toCollection(ArrayList::new));
         }
         return songs.stream().filter(song -> {
             if ("language".equals(filterType)) {
@@ -759,6 +781,30 @@ public class SpotifyService {
             }
             return true;
         }).collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    // Serializa un Set de filtros a JSON array para persistirlo en BD.
+    // Usamos JSON (en lugar de CSV) porque nombres de artistas pueden contener comas.
+    private String toJsonArray(Set<String> values) {
+        try {
+            return OBJECT_MAPPER.writeValueAsString(new ArrayList<>(values));
+        } catch (Exception e) {
+            log.warn("No se pudo serializar filtros custom: {}", e.getMessage());
+            return "[]";
+        }
+    }
+
+    // Deserializa un JSON array a Set. Si viene null/blank/malformado, retorna Set vacío
+    // (que en los matchesX() significa "no filtrar por esta categoría").
+    private Set<String> parseJsonSet(String json) {
+        if (json == null || json.isBlank()) return Set.of();
+        try {
+            List<String> list = OBJECT_MAPPER.readValue(json, new TypeReference<List<String>>() {});
+            return new HashSet<>(list);
+        } catch (Exception e) {
+            log.warn("No se pudo deserializar filtros custom: {}", e.getMessage());
+            return Set.of();
+        }
     }
 
     // Matching inclusivo: una canción puede tener varios idiomas separados por coma (ej: "English, Español").

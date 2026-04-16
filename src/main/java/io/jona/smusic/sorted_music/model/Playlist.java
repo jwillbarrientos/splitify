@@ -29,4 +29,13 @@ public class Playlist extends BaseEntity {
     private String filterType;
 
     private String filterValue;
+
+    @Column(columnDefinition = "TEXT")
+    private String customLanguages;
+
+    @Column(columnDefinition = "TEXT")
+    private String customGenres;
+
+    @Column(columnDefinition = "TEXT")
+    private String customArtists;
 }
