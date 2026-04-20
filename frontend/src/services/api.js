@@ -63,8 +63,8 @@ export async function deleteSplitifyPlaylist(id) {
   if (!res.ok) throw new Error('Failed to delete playlist');
 }
 
-export async function createOrganizedPlaylists(playlistIds, options) {
-  const res = await apiFetch(`${API_BASE}/playlists/create/combined`, {
+export async function previewOrganizedPlaylists(playlistIds, options) {
+  const res = await apiFetch(`${API_BASE}/playlists/create/combined/preview`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -74,7 +74,46 @@ export async function createOrganizedPlaylists(playlistIds, options) {
       byReleaseDate: options.fecha,
     }),
   });
+  if (!res.ok) throw new Error('Failed to preview playlists');
+  return res.json();
+}
+
+export async function confirmOrganizedPlaylists(playlistIds, specs) {
+  const res = await apiFetch(`${API_BASE}/playlists/create/combined/confirm`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ playlistIds, playlists: specs }),
+  });
   if (!res.ok) throw new Error('Failed to create playlists');
+  return res.json();
+}
+
+export async function renameSplitifyPlaylist(id, name) {
+  const res = await apiFetch(`${API_BASE}/playlists/splitify/${id}/rename`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error('Failed to rename playlist');
+  return res.json();
+}
+
+export async function updateSplitifyPlaylistImage(id, imageBase64) {
+  const res = await apiFetch(`${API_BASE}/playlists/splitify/${id}/image`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ imageBase64 }),
+  });
+  if (!res.ok) {
+    let message = 'No se pudo actualizar la imagen de la playlist.';
+    try {
+      const body = await res.json();
+      if (body && body.message) message = body.message;
+    } catch {
+      // body no es JSON, usar mensaje por defecto
+    }
+    throw new Error(message);
+  }
   return res.json();
 }
 
@@ -110,20 +149,36 @@ export async function previewRefresh(id) {
   return res.json();
 }
 
-export async function refreshSplitifyPlaylist(id, restoreRemoved = false) {
-  const res = await apiFetch(`${API_BASE}/playlists/splitify/${id}/refresh?restoreRemoved=${restoreRemoved}`, { method: 'PUT' });
+// restoredSongIds: array de spotifyIds de canciones a restaurar. Vacío = no restaurar ninguna.
+export async function refreshSplitifyPlaylist(id, restoredSongIds = []) {
+  const res = await apiFetch(`${API_BASE}/playlists/splitify/${id}/refresh`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ restoredSongIds }),
+  });
   if (res.status === 204) return null;
   if (!res.ok) throw new Error('Failed to refresh playlist');
   return res.json();
 }
 
-export async function refreshSplitifyPlaylists(ids, restoreRemoved = false) {
-  const res = await apiFetch(`${API_BASE}/playlists/splitify/batch/refresh?restoreRemoved=${restoreRemoved}`, {
+// items: array de {playlistId, restoredSongIds}
+export async function refreshSplitifyPlaylists(items) {
+  const res = await apiFetch(`${API_BASE}/playlists/splitify/batch/refresh`, {
     method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items }),
+  });
+  if (!res.ok) throw new Error('Failed to refresh playlists');
+  return res.json();
+}
+
+export async function previewBatchRefresh(ids) {
+  const res = await apiFetch(`${API_BASE}/playlists/splitify/batch/refresh/preview`, {
+    method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(ids),
   });
-  if (!res.ok) throw new Error('Failed to refresh playlists');
+  if (!res.ok) throw new Error('Failed to preview batch refresh');
   return res.json();
 }
 

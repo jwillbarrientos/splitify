@@ -122,7 +122,7 @@ npm run lint
 - Requirements (REQUIREMENTS.adoc) and architecture (ARCHITECTURE.adoc) documents are written in Spanish.
 - Deployment target is Linode (not yet configured).
 - Spotify OAuth2 authentication is implemented and functional.
-- Playlist sync (RF1.1) is implemented: fetches playlists + first 10 songs per owned playlist.
+- Playlist sync (RF1.1) is implemented: fetches playlists and all their songs per owned playlist (paginated via Spotify's `limit=50` + `next`).
 - Song classification (RF3) is implemented: genre and language via ChatGPT (GPT-4.1-nano), release year from Spotify. Classifications are cached across re-syncs.
 - When testing via browser, use `http://127.0.0.1:8080` (not localhost:5173) since OAuth callback redirects to port 8080.
 - SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, and OPENAI_API_KEY env vars must be set (configured in IntelliJ run config).

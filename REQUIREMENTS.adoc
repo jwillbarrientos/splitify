@@ -2,8 +2,8 @@
 
 == Splitify
 
-*Versión:* 2.0
-*Fecha:* 2026-04-09
+*Versión:* 2.1
+*Fecha:* 2026-04-16
 *Autor:* Barri
 
 '''
@@ -129,10 +129,8 @@ Los artistas se obtienen directamente de la API de Spotify. Una canción puede t
 2. Si no existen playlists sincronizadas, se muestra un estado vacío con el botón "Sincronizar Playlists". Los demás botones de acción (ej: "Organizar") se muestran deshabilitados.
 3. El usuario presiona "Sincronizar Playlists".
 4. Se muestra una pantalla bloqueante con el mensaje "Sincronizando..." que impide cualquier navegación o interacción.
-5. El sistema obtiene todas las playlists del usuario desde Spotify (incluyendo Liked Songs) y, para cada una, obtiene *todas* sus canciones con metadatos completos (nombre, artista, álbum, fecha de lanzamiento). Las canciones se clasifican con ChatGPT (género e idioma) durante la sincronización.
+5. El sistema obtiene todas las playlists del usuario desde Spotify (incluyendo Liked Songs) y, para cada una, obtiene *todas* sus canciones con metadatos completos (nombre, artista, álbum, fecha de lanzamiento). La descarga se realiza paginando la API de Spotify con `limit=50` y siguiendo el campo `next` de cada respuesta hasta agotar los resultados. Las canciones se clasifican con ChatGPT (género e idioma) durante la sincronización.
 6. Al finalizar, se redirige al usuario a la página principal con las playlists ya cargadas.
-
-NOTE: Durante la fase de desarrollo, la sincronización se limita a las primeras 10 canciones por playlist para agilizar las pruebas. En la versión final se traerán todas las canciones.
 
 *Criterios de aceptación:*
 - Si no hay playlists sincronizadas, la página principal muestra un estado vacío con el botón "Sincronizar Playlists".
@@ -182,36 +180,75 @@ El usuario puede acceder a cualquier playlist (de usuario o de Splitify) para co
 
 === RF2.2 — Actualización de Playlists de Splitify
 
-*Descripción:* El sistema permitirá al usuario actualizar las playlists de Splitify para reflejar tanto los cambios ocurridos en las playlists origen como los cambios manuales realizados directamente en Spotify. La actualización puede realizarse de forma individual (botón "Actualizar" en cada playlist de Splitify) o en lote (botón "Actualizar seleccionadas" en RF2.1). Para esto, el sistema debe recordar qué playlists origen y qué criterio de organización (idioma, género, fecha de lanzamiento) se usaron al crear cada playlist de Splitify.
+*Descripción:* El sistema permitirá al usuario actualizar las playlists de Splitify para reflejar tanto los cambios ocurridos en las playlists origen como los cambios manuales realizados directamente en Spotify. La actualización puede realizarse de forma individual (botón "Actualizar" en cada playlist de Splitify) o en lote (botón "Actualizar seleccionadas" en RF2.1). Para esto, el sistema debe recordar qué playlists origen y qué criterio de organización (idioma, género, fecha de lanzamiento, o filtros personalizados) se usaron al crear cada playlist de Splitify.
 
 *Flujo:*
 1. El usuario presiona "Actualizar" en una playlist de Splitify (o selecciona varias y presiona "Actualizar seleccionadas").
 2. El sistema genera una *vista previa* de los cambios detectados comparando el estado real en Spotify, la base de datos y las playlists origen.
-3. Si se detectan canciones que el usuario eliminó manualmente desde Spotify (y que aún existen en las playlists origen), se muestra un diálogo de confirmación preguntando si desea restaurarlas ("Restaurar todas") o solo agregar las canciones nuevas ("Solo nuevas"). Si el usuario elige "Solo nuevas", la decisión se recuerda permanentemente y no se vuelve a preguntar por esas canciones en actualizaciones futuras.
+3. Si se detectan canciones que el usuario eliminó manualmente desde Spotify (y que aún existen en las playlists origen), se muestra un *modal de conflictos* con las siguientes características:
+   - Cada canción aparece con un *checkbox individual* — el usuario elige granularmente cuáles restaurar.
+   - Si la operación es en lote (múltiples playlists con conflictos), las canciones se agrupan por playlist con el nombre de la playlist como cabecera. Cada grupo es *colapsable* y tiene su propio checkbox "seleccionar todo".
+   - El modal incluye un checkbox global "seleccionar todas" y un contador "X de Y seleccionadas".
+   - El usuario puede confirmar con "Restaurar seleccionadas (N)", descartar todas con "No restaurar ninguna", o cancelar la operación completa.
+   - Las canciones *no seleccionadas* para restaurar se marcan como excluidas permanentemente (decisión recordada).
 4. El sistema construye la lista final de canciones aplicando las siguientes reglas:
    - *Canciones de las playlists origen:* se mantienen si siguen existiendo en las playlists origen y cumplen el criterio. Si una canción fue eliminada de todas las playlists origen, se elimina también de la playlist de Splitify.
    - *Canciones agregadas manualmente por el usuario en Spotify:* se conservan permanentemente en actualizaciones sucesivas, independientemente de si existen en las playlists origen.
-   - *Canciones eliminadas manualmente por el usuario desde Spotify:* el sistema pregunta solo la primera vez. Si el usuario elige no restaurarlas, se marcan como excluidas y no se vuelven a agregar ni a preguntar. Si el usuario vuelve a agregar manualmente en Spotify una canción previamente excluida, la exclusión se revoca automáticamente.
+   - *Canciones eliminadas manualmente por el usuario desde Spotify:* el sistema pregunta solo la primera vez. Si el usuario elige no restaurar una canción específica, se marca como excluida y no se vuelve a agregar ni a preguntar. Si el usuario vuelve a agregar manualmente en Spotify una canción previamente excluida, la exclusión se revoca automáticamente.
    - *Canciones nuevas en las playlists origen:* si son verdaderamente nuevas (nunca estuvieron en la playlist de Splitify ni fueron excluidas), se clasifican (género e idioma) y, si cumplen con el criterio de la playlist, se agregan.
    - *Playlist origen eliminada:* si una de las playlists origen ya no existe, se elimina la referencia a esa fuente.
 5. Se clasifica cualquier canción sin género/idioma (ej: canciones agregadas manualmente desde Spotify).
 6. Se reordena la playlist completa por fecha de lanzamiento (RN1) y se reemplaza el contenido en Spotify para corregir el orden.
-7. Si tras la actualización la playlist de Splitify queda sin canciones, se elimina automáticamente tanto de Spotify como de la base de datos.
-8. Si la playlist de Splitify fue eliminada desde Spotify (ya no existe en la cuenta del usuario), se detecta automáticamente y se elimina de la base de datos.
+7. Adicionalmente, el sistema sincroniza el *nombre* y la *imagen* de la playlist de Splitify con el estado actual en Spotify (por si el usuario las editó directamente desde Spotify entre actualizaciones).
+8. Si tras la actualización la playlist de Splitify queda sin canciones, se elimina automáticamente tanto de Spotify como de la base de datos.
+9. Si la playlist de Splitify fue eliminada desde Spotify (ya no existe en la cuenta del usuario), se detecta automáticamente y se elimina de la base de datos.
 
 *Criterios de aceptación:*
-- El sistema registra qué playlists origen y qué criterio de organización se usaron para crear cada playlist de Splitify.
-- Antes de actualizar, el sistema muestra una vista previa con las canciones eliminadas manualmente desde Spotify (si las hay) y ofrece un diálogo de confirmación.
-- Si el usuario elige no restaurar canciones eliminadas, la decisión se recuerda permanentemente (campo `excluded` en la entidad Song). No se vuelve a preguntar en actualizaciones futuras.
+- El sistema registra qué playlists origen y qué criterio de organización se usaron para crear cada playlist de Splitify (incluyendo los filtros seleccionados en modo personalizado).
+- Antes de actualizar, el sistema muestra una vista previa con las canciones eliminadas manualmente desde Spotify (si las hay) y un modal de conflictos con checkboxes individuales por canción.
+- En actualizaciones en lote, las canciones del modal se agrupan por playlist con cabeceras colapsables para facilitar la diferenciación.
+- El usuario puede elegir exactamente qué canciones restaurar (granularidad por canción, no todo-o-nada).
+- Si el usuario elige no restaurar una canción específica, la decisión se recuerda permanentemente (campo `excluded` en la entidad Song). No se vuelve a preguntar en actualizaciones futuras.
 - Las canciones agregadas manualmente desde Spotify se conservan permanentemente (campo `manuallyAdded` en la entidad Song), no solo en la primera actualización.
 - Las canciones eliminadas de las playlists origen se eliminan de la playlist de Splitify al actualizar.
 - Si el usuario re-agrega en Spotify una canción previamente excluida, la exclusión se revoca automáticamente.
 - Las canciones nuevas de las playlists origen que cumplan el criterio se agregan automáticamente.
 - Tras la actualización, todas las canciones se reordenan por fecha de lanzamiento en Spotify.
+- Tras la actualización, el nombre e imagen de la playlist se sincronizan con Spotify si cambiaron.
 - Si una playlist origen fue eliminada, se elimina la referencia a esa fuente.
 - Si la playlist de Splitify queda vacía tras la actualización, se elimina automáticamente de Spotify y de la base de datos.
 - Si la playlist de Splitify fue eliminada desde Spotify, se detecta y se elimina de la base de datos.
 - La actualización se refleja tanto en Spotify como en la base de datos local.
+
+'''
+
+=== RF2.3 — Edición de Metadatos de Playlists de Splitify
+
+*Descripción:* El sistema permitirá al usuario cambiar el nombre y la foto de portada de cualquier playlist de Splitify directamente desde la página principal. Estas acciones son *exclusivas* de playlists de Splitify (no se aplican a playlists originales del usuario, que son read-only desde la app). Los cambios se aplican inmediatamente tanto en la base de datos local como en Spotify, sin necesidad de re-sincronizar.
+
+*Flujo (renombrar):*
+1. En la card de la playlist de Splitify, el usuario ve el nombre con un ícono de lápiz visible a su lado.
+2. Al presionar el ícono, el nombre se transforma en un input editable con botones de confirmar (✓) y cancelar (✗) dentro del mismo borde.
+3. El usuario edita el nombre y presiona Enter o el botón de confirmar (Escape cancela).
+4. El sistema envía el nuevo nombre a Spotify (`PUT /v1/playlists/{id}`) y actualiza la base de datos.
+5. El cambio se refleja instantáneamente en la UI.
+
+*Flujo (cambiar foto):*
+1. El usuario posa el cursor sobre la portada de una playlist de Splitify — aparece un overlay con el texto "Cambiar foto" y un ícono de cámara.
+2. Al hacer clic, se abre el selector de archivos del sistema operativo (filtrado a imágenes).
+3. El navegador redimensiona la imagen a máximo 640px (lado mayor) y la comprime a JPEG calidad 0.85 para cumplir el límite de Spotify de 256KB.
+4. El sistema sube la imagen a Spotify (`PUT /v1/playlists/{id}/images`, JPEG en base64) y, tras unos segundos, obtiene la URL de la imagen ya procesada (Spotify puede demorar unos segundos en propagarla).
+5. La foto de la card se actualiza con la nueva imagen inmediatamente.
+
+*Criterios de aceptación:*
+- Las playlists originales del usuario (sección superior) *no* tienen opción de renombrar ni cambiar foto desde la app.
+- El ícono de lápiz para renombrar está siempre visible al lado del nombre (no requiere hover para descubrirlo).
+- El input de edición respeta las dimensiones del card (no lo deforma ni se desborda).
+- Al cambiar el nombre, el cambio aparece en Spotify y en la app al instante.
+- Al pasar el cursor sobre la foto de una playlist de Splitify, aparece un indicador visual de que es editable.
+- Al cambiar la foto, el sistema acepta formatos JPEG/PNG/WebP del usuario y los convierte a JPEG comprimido antes de enviar.
+- Si Spotify rechaza la imagen (tamaño, formato), se muestra un mensaje de error al usuario en la card.
+- El cambio de foto requiere el scope adicional `ugc-image-upload` en la autorización OAuth.
 
 '''
 
@@ -273,17 +310,23 @@ El usuario puede acceder a cualquier playlist (de usuario o de Splitify) para co
 
 === RF6.1 — Creación Combinada de Playlists Genéricas
 
-*Descripción:* El sistema permitirá al usuario seleccionar múltiples tipos de ordenamiento genérico (por idioma, por género y/o por fecha de lanzamiento) de forma simultánea y ejecutar la creación de todas las playlists resultantes con un único botón *"Crear playlists"*.
+*Descripción:* El sistema permitirá al usuario seleccionar múltiples tipos de ordenamiento genérico (por idioma, por género y/o por fecha de lanzamiento) de forma simultánea y ejecutar la creación de todas las playlists resultantes con un único botón *"Crear playlists"*. Antes de la creación, el sistema muestra un *modal de confirmación con los nombres de las playlists a crear*, permitiendo al usuario editarlos si lo desea.
 
 *Flujo:*
 1. El usuario selecciona una o más playlists origen desde la sección superior de la página principal.
 2. El usuario marca uno o más tipos de ordenamiento genérico: por idioma (RF4), por género (RF5) y/o por fecha de lanzamiento (RF6).
 3. El usuario presiona el botón "Crear playlists".
-4. El sistema genera todas las playlists correspondientes a los tipos de ordenamiento seleccionados.
+4. El sistema calcula las playlists que se generarían (una por idioma, una por género, y/o una por fecha de lanzamiento) y muestra un modal con la lista completa de *nombres por defecto editables*.
+5. Cada nombre aparece pre-rellenado con el nombre por defecto (ej: "Splitify English Songs", "Splitify Rock Songs", "Splitify Songs By Release Date"). El usuario puede dejarlos tal cual o editarlos.
+6. El usuario presiona "Confirmar y Crear" y el sistema crea las playlists con los nombres finales.
 
 *Criterios de aceptación:*
 - El usuario puede seleccionar cualquier combinación de los tres tipos de ordenamiento genérico.
-- Al presionar "Crear playlists", se ejecutan todos los tipos seleccionados en una sola operación.
+- Antes de crear, se muestra un modal con la lista de playlists propuestas y sus nombres por defecto editables.
+- Los nombres por defecto siguen la nomenclatura de RF4/RF5/RF6.
+- El usuario puede editar cualquier nombre o dejarlo sin cambios.
+- Al presionar "Confirmar y Crear", se generan las playlists con los nombres finales (default o editados).
+- Si el usuario vuelve al modal anterior desde el de confirmación, la selección de criterios se preserva.
 - Se generan las playlists según las reglas definidas en RF4, RF5 y RF6 respectivamente.
 
 '''
@@ -317,7 +360,7 @@ El usuario puede acceder a cualquier playlist (de usuario o de Splitify) para co
 |RN7 |El filtrado de canciones es *inclusivo* en campos multi-valor: si una canción tiene múltiples idiomas (ej: inglés y español) y el usuario filtra por inglés, la canción se incluye. De igual forma, si una canción es una colaboración de varios artistas y el usuario filtra por uno de ellos, basta con que el artista deseado participe en la canción para que se incluya en el resultado.
 |RN4 |La creación de playlists genéricas (RF4, RF5, RF6) siempre producirá al menos una playlist, dado que toda canción pertenece a un idioma, un género y una fecha de lanzamiento.
 |RN5 |La creación de playlists personalizadas (RF7) puede no generar ninguna playlist si ninguna canción cumple con todos los filtros seleccionados. En ese caso, el sistema notificará al usuario mediante un mensaje de error indicando que no se encontraron canciones que coincidan con los criterios especificados.
-|RN8 |El sistema debe persistir la relación entre cada playlist de Splitify y sus playlists origen, así como el criterio de organización utilizado (idioma, género, fecha de lanzamiento). Esta información es necesaria para la funcionalidad de actualización (RF2.2).
+|RN8 |El sistema debe persistir la relación entre cada playlist de Splitify y sus playlists origen, así como el criterio de organización utilizado (idioma, género, fecha de lanzamiento, o filtros personalizados de RF7). Para playlists personalizadas (RF7) se persisten las listas completas de idiomas, géneros y artistas elegidos originalmente. Esta información es necesaria para la funcionalidad de actualización (RF2.2): permite al sistema re-evaluar las canciones de las fuentes y aplicar el mismo criterio original.
 |===
 
 '''
@@ -351,4 +394,5 @@ El usuario puede acceder a cualquier playlist (de usuario o de Splitify) para co
 |2026-04-09 |1.8 |RF1.1 actualizado: la sincronización obtiene todas las canciones de cada playlist (no solo las primeras 10; el límite de 10 se mantiene temporalmente en desarrollo). Nuevo RF2.2 (actualización de playlists de Splitify): detalla el comportamiento del botón "Actualizar" — agrega canciones nuevas en posición correcta, elimina canciones removidas de las fuentes, limpia canciones de playlists origen eliminadas. Nueva RN8: el sistema debe persistir las playlists origen y el criterio de organización de cada playlist de Splitify.
 |2026-04-09 |1.9 |RF2.2 ampliado: la actualización ahora detecta cambios manuales hechos desde Spotify (canciones agregadas/eliminadas directamente en la playlist de Splitify). Canciones agregadas manualmente se conservan y clasifican. Canciones eliminadas manualmente no se re-agregan. Se reordena la playlist completa por fecha de lanzamiento tras cada actualización. Se detecta si la playlist fue eliminada desde Spotify.
 |2026-04-09 |2.0 |RF2.2 reescrito: nuevo flujo con vista previa y diálogo de confirmación para canciones eliminadas manualmente. El sistema ahora recuerda permanentemente las decisiones de exclusión (`excluded`) y las canciones agregadas manualmente (`manuallyAdded`). Las canciones eliminadas de las playlists origen se eliminan de la playlist de Splitify. La re-sincronización ahora también actualiza la lista de playlists de Splitify en el frontend.
+|2026-04-16 |2.1 |Bug fix en RF7 (custom): los filtros personalizados (idiomas, géneros, artistas) ahora se persisten en la entidad Playlist para poder re-aplicarlos en la actualización (RN8 ampliado). RF2.2 mejorado: el modal de conflictos ahora tiene checkboxes individuales por canción (granularidad, no todo-o-nada) y agrupación por playlist en lote. La actualización también sincroniza nombre e imagen desde Spotify. RF6.1 ampliado: nuevo modal de confirmación con nombres por defecto editables antes de crear las playlists. Nuevo RF2.3: edición de metadatos de playlists de Splitify (renombrar inline con ícono de lápiz siempre visible; cambiar foto con overlay al pasar el cursor). La re-sincronización ahora también trae nombre e imagen de las playlists de Splitify desde Spotify. Nuevo scope requerido: `ugc-image-upload`.
 |===

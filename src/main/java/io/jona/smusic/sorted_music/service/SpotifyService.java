@@ -3,6 +3,7 @@ package io.jona.smusic.sorted_music.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.jona.smusic.sorted_music.dto.AvailableFiltersDto;
+import io.jona.smusic.sorted_music.dto.PlaylistCreateSpec;
 import io.jona.smusic.sorted_music.dto.PlaylistDto;
 import io.jona.smusic.sorted_music.dto.RefreshPreviewDto;
 import io.jona.smusic.sorted_music.dto.SongDto;
@@ -115,7 +116,26 @@ public class SpotifyService {
         // 4. Playlists Splitify cuyo ID ya no existe en Spotify (el usuario las borró desde Spotify)
         removeOrphanedSplitifyPlaylists(userId, allSpotifyIds);
 
+        // 5. Para las playlists Splitify que SÍ existen en Spotify, sincronizar su metadata
+        // (nombre e imagen) por si el usuario las editó directamente desde Spotify.
+        // NO reconciliamos canciones aquí — eso queda exclusivo del botón "Actualizar".
+        syncSplitifyPlaylistsMetadata(restClient, userId, allSpotifyIds);
+
         return savedPlaylists.stream().map(this::toDto).collect(Collectors.toList());
+    }
+
+    // Para cada playlist Splitify que sigue existiendo en Spotify, actualizar nombre e imagen
+    // en BD si cambiaron. No toca canciones — la comparación con fuentes queda para "Actualizar".
+    private void syncSplitifyPlaylistsMetadata(RestClient restClient, String userId,
+                                                 Set<String> allSpotifyIds) {
+        for (Playlist sp : playlistRepository.findByUserIdAndSplitifyOrderByIdAsc(userId, true)) {
+            if (!allSpotifyIds.contains(sp.getSpotifyId())) continue;
+            SpotifyDto.PlaylistItem remote = fetchPlaylistSafely(restClient, sp.getSpotifyId());
+            if (syncSplitifyMetadata(sp, remote)) {
+                playlistRepository.save(sp);
+                log.debug("Sincronizada metadata de playlist Splitify '{}'", sp.getName());
+            }
+        }
     }
 
     // Elimina todas las playlists no-Splitify del usuario de la BD (usado al cerrar sesión/limpiar datos).
@@ -192,10 +212,12 @@ public class SpotifyService {
     //   - spotifySongs: lo que tiene la playlist ahora mismo en Spotify (incluye ediciones manuales del usuario)
     //   - dbSongs: lo que teníamos guardado en BD del último sync
     //   - filteredSourceSongs: lo que las playlists origen producen ahora con el filtro original
-    // El flag restoreRemoved controla si se re-agregan canciones que el usuario quitó manualmente.
+    // restoredSongIds: spotifyIds específicos que el usuario eligió re-agregar (canciones que había
+    // quitado manualmente de Spotify). Set vacío = no restaurar ninguna.
     @Transactional
     public PlaylistDto refreshSplitifyPlaylist(OAuth2AuthenticationToken authentication,
-                                                Long id, boolean restoreRemoved) {
+                                                Long id, Set<String> restoredSongIds) {
+        Set<String> restored = restoredSongIds != null ? restoredSongIds : Set.of();
         String userId = authentication.getName();
         Playlist splitifyPlaylist = findSplitifyPlaylist(id, userId);
         RestClient restClient = spotifyApi.createRestClient(authentication);
@@ -211,6 +233,12 @@ public class SpotifyService {
             return null;
         }
 
+        // 1b. Traer metadata actual (nombre, imagen). Si el usuario la cambió en Spotify
+        // directamente, reflejarlo en BD. No es crítico — si falla, el refresh sigue.
+        SpotifyDto.PlaylistItem remoteMetadata = fetchPlaylistSafely(restClient,
+                splitifyPlaylist.getSpotifyId());
+        syncSplitifyMetadata(splitifyPlaylist, remoteMetadata);
+
         Set<String> spotifyIds = toSpotifyIdSet(spotifySongs);
         List<Song> dbSongs = songRepository.findByPlaylistId(id);
         Map<String, Song> dbById = indexBySpotifyId(dbSongs);
@@ -225,12 +253,12 @@ public class SpotifyService {
         // 3. Construir la lista final mezclando las 3 fuentes (ver buildFinalSongList para detalle)
         Map<String, Song> finalSongs = buildFinalSongList(
                 spotifySongs, filteredSourceSongs, dbById, dbSongIds,
-                sourceIds, spotifyIds, previouslyExcluded, restoreRemoved);
+                sourceIds, spotifyIds, previouslyExcluded, restored);
 
         // 4. Calcular qué canciones se deben marcar como excluidas para no re-agregarlas en el futuro
         Set<String> excludedForSave = computeExcludedIds(
                 previouslyExcluded, dbSongs, spotifyIds, sourceIds,
-                finalSongs.keySet(), restoreRemoved);
+                finalSongs.keySet(), restored);
 
         // 5. Clasificar género/idioma de canciones nuevas via ChatGPT, luego ordenar cronológicamente
         List<Song> finalList = new ArrayList<>(finalSongs.values());
@@ -264,6 +292,125 @@ public class SpotifyService {
         return toDto(splitifyPlaylist);
     }
 
+    // Renombra una playlist Splitify: cambia el nombre en Spotify y refleja el cambio en BD.
+    // Valida que la playlist pertenezca al usuario y sea de Splitify.
+    @Transactional
+    public PlaylistDto renameSplitifyPlaylist(OAuth2AuthenticationToken authentication,
+                                               Long id, String newName) {
+        if (newName == null || newName.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "El nombre no puede estar vacío.");
+        }
+        String trimmed = newName.trim();
+        String userId = authentication.getName();
+        Playlist playlist = findSplitifyPlaylist(id, userId);
+        RestClient restClient = spotifyApi.createRestClient(authentication);
+
+        spotifyApi.renamePlaylist(restClient, playlist.getSpotifyId(), trimmed);
+        playlist.setName(trimmed);
+        playlistRepository.save(playlist);
+        log.info("Playlist Splitify renombrada: id={} nuevo nombre='{}'", id, trimmed);
+        return toDto(playlist);
+    }
+
+    // Cambia la foto de una playlist Splitify. Sube la imagen a Spotify (JPEG base64) y,
+    // tras un breve delay, re-fetchea la playlist para obtener la URL de la imagen nueva.
+    @Transactional
+    public PlaylistDto updateSplitifyPlaylistImage(OAuth2AuthenticationToken authentication,
+                                                    Long id, String base64Jpeg) {
+        if (base64Jpeg == null || base64Jpeg.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "La imagen es obligatoria.");
+        }
+        // Si viene con el prefijo data URL (ej: "data:image/jpeg;base64,..."), lo quitamos
+        String cleanBase64 = base64Jpeg;
+        int commaIdx = cleanBase64.indexOf(',');
+        if (cleanBase64.startsWith("data:") && commaIdx > 0) {
+            cleanBase64 = cleanBase64.substring(commaIdx + 1);
+        }
+        // Spotify rechaza imágenes > 256KB (tamaño del base64, no el binario)
+        if (cleanBase64.length() > 256 * 1024) {
+            throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE,
+                    "La imagen es demasiado grande (máximo 256KB).");
+        }
+
+        String userId = authentication.getName();
+        Playlist playlist = findSplitifyPlaylist(id, userId);
+        RestClient restClient = spotifyApi.createRestClient(authentication);
+
+        try {
+            spotifyApi.uploadPlaylistImage(restClient, playlist.getSpotifyId(), cleanBase64);
+        } catch (Exception e) {
+            log.warn("Error subiendo imagen a Spotify para playlist {}: {}", id, e.getMessage());
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                    "Spotify rechazó la imagen. Debe ser JPEG válido de máximo 256KB.");
+        }
+
+        // Spotify tarda unos segundos en propagar la nueva imagen y generar su CDN URL.
+        // Intentamos 2 veces con pequeño delay para evitar devolver imageUrl stale.
+        String newImageUrl = fetchImageUrlWithRetry(restClient, playlist.getSpotifyId(),
+                playlist.getImageUrl());
+        if (newImageUrl != null) {
+            playlist.setImageUrl(newImageUrl);
+        }
+        playlistRepository.save(playlist);
+        log.info("Playlist Splitify {} actualizó su imagen", id);
+        return toDto(playlist);
+    }
+
+    // Intenta obtener el estado actual de una playlist en Spotify (nombre + imagen).
+    // Si falla (ej: la playlist ya no existe), devuelve null sin lanzar excepción.
+    // Se usa para refrescar metadata de playlists Splitify sin romper el flujo principal.
+    private SpotifyDto.PlaylistItem fetchPlaylistSafely(RestClient restClient, String spotifyId) {
+        try {
+            return spotifyApi.fetchPlaylist(restClient, spotifyId);
+        } catch (Exception e) {
+            log.debug("No se pudo obtener playlist {} de Spotify: {}", spotifyId, e.getMessage());
+            return null;
+        }
+    }
+
+    // Obtiene solo la image URL (sin lanzar). Conveniente para el flujo de creación.
+    private String fetchPlaylistImageUrlSafely(RestClient restClient, String spotifyId) {
+        SpotifyDto.PlaylistItem item = fetchPlaylistSafely(restClient, spotifyId);
+        return item != null ? extractImageUrl(item.images()) : null;
+    }
+
+    // Actualiza name/imageUrl en BD si cambiaron en Spotify. Devuelve true si hubo cambios.
+    private boolean syncSplitifyMetadata(Playlist playlist, SpotifyDto.PlaylistItem remote) {
+        if (remote == null) return false;
+        boolean changed = false;
+        if (remote.name() != null && !remote.name().equals(playlist.getName())) {
+            playlist.setName(remote.name());
+            changed = true;
+        }
+        String remoteImage = extractImageUrl(remote.images());
+        if (remoteImage != null && !remoteImage.equals(playlist.getImageUrl())) {
+            playlist.setImageUrl(remoteImage);
+            changed = true;
+        }
+        return changed;
+    }
+
+    // Intenta obtener la URL de imagen recién subida, reintentando porque Spotify
+    // tarda unos segundos en procesar la imagen. Si no cambia tras los retries, devuelve null.
+    private String fetchImageUrlWithRetry(RestClient restClient, String spotifyId, String oldUrl) {
+        for (int attempt = 0; attempt < 3; attempt++) {
+            try {
+                Thread.sleep(700L * (attempt + 1));
+                SpotifyDto.PlaylistItem fetched = spotifyApi.fetchPlaylist(restClient, spotifyId);
+                String candidate = fetched != null ? extractImageUrl(fetched.images()) : null;
+                if (candidate != null && !candidate.equals(oldUrl)) return candidate;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return null;
+            } catch (Exception e) {
+                log.debug("Intento {} de fetch image falló: {}", attempt, e.getMessage());
+            }
+        }
+        return null;
+    }
+
     // Elimina una playlist Splitify: primero hace unfollow en Spotify (equivale a borrarla),
     // luego elimina sources, canciones y playlist de la BD en cascada.
     @Transactional
@@ -288,46 +435,73 @@ public class SpotifyService {
         }
     }
 
-    // Crea playlists organizadas automáticamente en Spotify según los criterios seleccionados.
-    // Por cada criterio activo, agrupa las canciones y crea una playlist real en Spotify por grupo.
-    // Ej: byLanguage crea "Splitify English Songs", "Splitify Español Songs", etc.
-    public List<PlaylistDto> createOrganizedPlaylists(OAuth2AuthenticationToken authentication,
-                                                       List<Long> playlistIds,
-                                                       boolean byLanguage,
-                                                       boolean byGenre,
-                                                       boolean byReleaseDate) {
+    // Preview de las playlists que se crearían al organizar por los criterios seleccionados.
+    // No crea nada en Spotify ni en BD. Devuelve una lista de specs con nombres default, para que el
+    // frontend muestre un modal donde el usuario pueda editar los nombres antes de confirmar.
+    public List<PlaylistCreateSpec> previewOrganizedPlaylists(List<Long> playlistIds,
+                                                                boolean byLanguage, boolean byGenre,
+                                                                boolean byReleaseDate) {
+        List<Song> allSongs = collectDeduplicatedSongs(playlistIds);
+        List<PlaylistCreateSpec> result = new ArrayList<>();
+
+        if (byLanguage) {
+            for (String lang : groupByLanguage(allSongs).keySet()) {
+                result.add(new PlaylistCreateSpec("language", lang, "Splitify " + lang + " Songs"));
+            }
+        }
+        if (byGenre) {
+            for (String genre : groupByGenre(allSongs).keySet()) {
+                result.add(new PlaylistCreateSpec("genre", genre, "Splitify " + genre + " Songs"));
+            }
+        }
+        if (byReleaseDate && !allSongs.isEmpty()) {
+            result.add(new PlaylistCreateSpec("releaseDate", null, "Splitify Songs By Release Date"));
+        }
+        return result;
+    }
+
+    // Crea las playlists a partir de specs (con nombres finales ya elegidos por el usuario en
+    // el modal de confirmación). Agrupa las canciones por el filtro de cada spec y crea una
+    // playlist real en Spotify por cada una.
+    public List<PlaylistDto> createOrganizedPlaylistsFromSpecs(OAuth2AuthenticationToken authentication,
+                                                                 List<Long> playlistIds,
+                                                                 List<PlaylistCreateSpec> specs) {
+        if (specs == null || specs.isEmpty()) return List.of();
+
         String userId = authentication.getName();
         RestClient restClient = spotifyApi.createRestClient(authentication);
         List<Playlist> sourcePlaylists = findPlaylistsByIds(playlistIds);
-        // Juntar canciones de todas las playlists seleccionadas, sin duplicados
         List<Song> allSongs = collectDeduplicatedSongs(playlistIds);
-        List<PlaylistDto> createdPlaylists = new ArrayList<>();
 
-        if (byLanguage) {
-            for (var entry : groupByLanguage(allSongs).entrySet()) {
-                String name = "Splitify " + entry.getKey() + " Songs";
-                List<Song> sorted = sortByReleaseDate(entry.getValue());
-                createdPlaylists.add(createSpotifyPlaylist(restClient, userId, name, sorted,
-                        sourcePlaylists, "language", entry.getKey()));
+        Map<String, List<Song>> byLang = groupByLanguage(allSongs);
+        Map<String, List<Song>> byGenre = groupByGenre(allSongs);
+        List<PlaylistDto> created = new ArrayList<>();
+
+        for (PlaylistCreateSpec spec : specs) {
+            String name = spec.name() != null && !spec.name().isBlank() ? spec.name().trim() :
+                    defaultNameForSpec(spec);
+            List<Song> songs;
+            if ("language".equals(spec.filterType())) {
+                songs = byLang.getOrDefault(spec.filterValue(), List.of());
+            } else if ("genre".equals(spec.filterType())) {
+                songs = byGenre.getOrDefault(spec.filterValue(), List.of());
+            } else if ("releaseDate".equals(spec.filterType())) {
+                songs = new ArrayList<>(allSongs);
+            } else {
+                continue;
             }
+            if (songs.isEmpty()) continue;
+            List<Song> sorted = sortByReleaseDate(new ArrayList<>(songs));
+            PlaylistDto dto = createSpotifyPlaylist(restClient, userId, name, sorted,
+                    sourcePlaylists, spec.filterType(), spec.filterValue());
+            if (dto != null) created.add(dto);
         }
+        return created;
+    }
 
-        if (byGenre) {
-            for (var entry : groupByGenre(allSongs).entrySet()) {
-                String name = "Splitify " + entry.getKey() + " Songs";
-                List<Song> sorted = sortByReleaseDate(entry.getValue());
-                createdPlaylists.add(createSpotifyPlaylist(restClient, userId, name, sorted,
-                        sourcePlaylists, "genre", entry.getKey()));
-            }
-        }
-
-        if (byReleaseDate) {
-            List<Song> sorted = sortByReleaseDate(new ArrayList<>(allSongs));
-            createdPlaylists.add(createSpotifyPlaylist(restClient, userId,
-                    "Splitify Songs By Release Date", sorted, sourcePlaylists, "releaseDate", null));
-        }
-
-        return createdPlaylists;
+    private String defaultNameForSpec(PlaylistCreateSpec spec) {
+        if ("releaseDate".equals(spec.filterType())) return "Splitify Songs By Release Date";
+        return "Splitify " + spec.filterValue() + " Songs";
     }
 
     // Devuelve todos los idiomas, géneros y artistas disponibles en las playlists seleccionadas.
@@ -476,8 +650,8 @@ public class SpotifyService {
     // Liked Songs es especial: no es una playlist real de Spotify, así que se maneja con un endpoint
     // diferente y un ID ficticio "liked_songs". Se trae, guarda, y clasifica igual que las demás.
     private Playlist syncLikedSongs(RestClient restClient, String userId, Playlist existing) {
-        SpotifyDto.LikedTracksResponse response = spotifyApi.fetchLikedSongs(restClient, 10);
-        int total = response != null ? response.total() : 0;
+        SpotifyApiClient.LikedSongsResult result = spotifyApi.fetchAllLikedSongs(restClient);
+        int total = result != null ? result.total() : 0;
 
         Playlist likedSongs;
         if (existing != null) {
@@ -493,22 +667,22 @@ public class SpotifyService {
                     .build());
         }
 
-        if (response != null && response.items() != null) {
-            List<Song> savedSongs = saveTracks(response.items(), likedSongs);
+        if (result != null && result.items() != null && !result.items().isEmpty()) {
+            List<Song> savedSongs = saveTracks(result.items(), likedSongs);
             classificationService.classifySongs(savedSongs);
         }
         return likedSongs;
     }
 
-    // Descarga las canciones de una playlist desde Spotify, las guarda en BD, y las envía a
-    // ClassificationService para obtener género/idioma via ChatGPT. El catch evita que una
-    // playlist con error (ej: 403 por permisos) detenga el sync de las demás.
+    // Descarga las canciones de una playlist desde Spotify (paginadas con limit=50 + `next`),
+    // las guarda en BD, y las envía a ClassificationService para obtener género/idioma via ChatGPT.
+    // El catch evita que una playlist con error (ej: 403 por permisos) detenga el sync de las demás.
     private void syncPlaylistTracks(RestClient restClient, Playlist playlist) {
         try {
-            SpotifyDto.TracksResponse response =
-                    spotifyApi.fetchPlaylistTracks(restClient, playlist.getSpotifyId(), 10);
-            if (response != null && response.items() != null && !response.items().isEmpty()) {
-                List<Song> savedSongs = saveTracks(response.items(), playlist);
+            List<SpotifyDto.TrackWrapper> items =
+                    spotifyApi.fetchAllPlaylistTracks(restClient, playlist.getSpotifyId());
+            if (items != null && !items.isEmpty()) {
+                List<Song> savedSongs = saveTracks(items, playlist);
                 classificationService.classifySongs(savedSongs);
             }
         } catch (Exception e) {
@@ -611,27 +785,33 @@ public class SpotifyService {
                 .toList();
     }
 
+    // Clona los campos de `source` en una nueva entidad Song asociada a `playlist`.
+    // Se usa al guardar canciones en BD: cada Song pertenece a UNA playlist (relación @ManyToOne),
+    // así que no podemos reutilizar la misma instancia entre playlists — hay que copiar.
+    private Song cloneSongInto(Song source, Playlist playlist, boolean excluded, boolean manuallyAdded) {
+        return Song.builder()
+                .spotifyId(source.getSpotifyId())
+                .name(source.getName())
+                .artist(source.getArtist())
+                .releaseYear(source.getReleaseYear())
+                .releaseDate(source.getReleaseDate())
+                .genre(source.getGenre())
+                .language(source.getLanguage())
+                .playlist(playlist)
+                .excluded(excluded)
+                .manuallyAdded(manuallyAdded)
+                .build();
+    }
+
     // Guarda las canciones finales de una playlist Splitify. Marca como manuallyAdded=true
     // las canciones que el usuario agregó directamente en Spotify (no vienen de las fuentes).
     private void saveSongsForPlaylist(List<Song> songs, Playlist playlist, Set<String> sourceIds) {
         for (Song s : songs) {
-            songRepository.save(Song.builder()
-                    .spotifyId(s.getSpotifyId())
-                    .name(s.getName())
-                    .artist(s.getArtist())
-                    .releaseYear(s.getReleaseYear())
-                    .releaseDate(s.getReleaseDate())
-                    .genre(s.getGenre())
-                    .language(s.getLanguage())
-                    .playlist(playlist)
-                    .excluded(false)
-                    .manuallyAdded(!sourceIds.contains(s.getSpotifyId()))
-                    .build());
+            boolean manuallyAdded = !sourceIds.contains(s.getSpotifyId());
+            songRepository.save(cloneSongInto(s, playlist, false, manuallyAdded));
         }
     }
 
-
-    //todo: entender bien
     // Guarda canciones excluidas (excluded=true) en BD. Son canciones que el usuario quitó
     // manualmente de la playlist en Spotify. Se guardan para "recordar" no re-agregarlas
     // en futuros refreshes. Busca los datos de la canción primero en las fuentes, luego en BD.
@@ -644,17 +824,7 @@ public class SpotifyService {
         for (String exId : excludedIds) {
             Song src = sourceById.get(exId);
             if (src != null) {
-                songRepository.save(Song.builder()
-                        .spotifyId(src.getSpotifyId())
-                        .name(src.getName())
-                        .artist(src.getArtist())
-                        .releaseYear(src.getReleaseYear())
-                        .releaseDate(src.getReleaseDate())
-                        .genre(src.getGenre())
-                        .language(src.getLanguage())
-                        .playlist(playlist)
-                        .excluded(true)
-                        .build());
+                songRepository.save(cloneSongInto(src, playlist, true, false));
             }
         }
     }
@@ -676,9 +846,14 @@ public class SpotifyService {
         List<String> trackIds = songs.stream().map(Song::getSpotifyId).toList();
         spotifyApi.addTracks(restClient, created.id(), trackIds);
 
+        // Spotify genera automáticamente un mosaico con las carátulas de las canciones.
+        // La imagen puede no estar lista al instante; si no la tenemos ahora, se llenará en el próximo sync/refresh.
+        String imageUrl = fetchPlaylistImageUrlSafely(restClient, created.id());
+
         Playlist playlist = playlistRepository.save(Playlist.builder()
                 .spotifyId(created.id())
                 .name(name)
+                .imageUrl(imageUrl)
                 .totalTracks(songs.size())
                 .userId(userId)
                 .splitify(true)
@@ -694,16 +869,7 @@ public class SpotifyService {
         }
 
         for (Song s : songs) {
-            songRepository.save(Song.builder()
-                    .spotifyId(s.getSpotifyId())
-                    .name(s.getName())
-                    .artist(s.getArtist())
-                    .releaseYear(s.getReleaseYear())
-                    .releaseDate(s.getReleaseDate())
-                    .genre(s.getGenre())
-                    .language(s.getLanguage())
-                    .playlist(playlist)
-                    .build());
+            songRepository.save(cloneSongInto(s, playlist, false, false));
         }
 
         log.info("Playlist creada en Spotify: '{}' con {} canciones", name, songs.size());
@@ -843,13 +1009,13 @@ public class SpotifyService {
     //     - Si sigue vigente → mantenerla, reutilizando género/idioma ya clasificados de la BD
     //   Pasada 2 - Canciones nuevas de las fuentes:
     //     - Si no estaba en Spotify NI en BD → es nueva, agregarla
-    //   Pasada 3 - Restaurar eliminadas (solo si restoreRemoved=true):
-    //     - Canciones que el usuario quitó de Spotify pero siguen en las fuentes → re-agregar
-    //     - Respeta las previouslyExcluded (no restaura las que ya estaban excluidas antes)
+    //   Pasada 3 - Restaurar seleccionadas por el usuario:
+    //     - Solo las canciones con spotifyId en restoredIds
+    //     - Deben estar en las fuentes, haber estado en BD, y ya no estar en Spotify ni previouslyExcluded
     private Map<String, Song> buildFinalSongList(
             List<Song> spotifySongs, List<Song> filteredSourceSongs,
             Map<String, Song> dbById, Set<String> dbSongIds, Set<String> sourceIds,
-            Set<String> spotifyIds, Set<String> previouslyExcluded, boolean restoreRemoved) {
+            Set<String> spotifyIds, Set<String> previouslyExcluded, Set<String> restoredIds) {
 
         Map<String, Song> finalSongs = new LinkedHashMap<>();
 
@@ -881,16 +1047,14 @@ public class SpotifyService {
             }
         }
 
-        // Pasada 3: si el usuario pidió restaurar, re-agregar canciones que quitó manualmente
-        // de Spotify pero que siguen disponibles en las fuentes
-        if (restoreRemoved) {
-            for (Song s : filteredSourceSongs) {
-                if (!finalSongs.containsKey(s.getSpotifyId())
-                        && dbSongIds.contains(s.getSpotifyId())
-                        && !previouslyExcluded.contains(s.getSpotifyId())
-                        && !spotifyIds.contains(s.getSpotifyId())) {
-                    finalSongs.put(s.getSpotifyId(), s);
-                }
+        // Pasada 3: restaurar solo las canciones que el usuario eligió explícitamente
+        for (Song s : filteredSourceSongs) {
+            if (restoredIds.contains(s.getSpotifyId())
+                    && !finalSongs.containsKey(s.getSpotifyId())
+                    && dbSongIds.contains(s.getSpotifyId())
+                    && !previouslyExcluded.contains(s.getSpotifyId())
+                    && !spotifyIds.contains(s.getSpotifyId())) {
+                finalSongs.put(s.getSpotifyId(), s);
             }
         }
 
@@ -900,22 +1064,20 @@ public class SpotifyService {
     // Calcula qué canciones deben guardarse como excluidas (excluded=true) en BD.
     // Esto le dice a futuros refreshes "no re-agregar estas canciones, el usuario las quitó".
     //   - Empieza con las que ya estaban excluidas antes
-    //   - Si no se pidió restaurar: agrega las que estaban en BD pero ya no están en Spotify
-    //     (el usuario las quitó manualmente) y siguen en las fuentes
+    //   - Agrega las que estaban en BD, el usuario quitó de Spotify, siguen en las fuentes,
+    //     y NO fueron elegidas para restaurar por el usuario
     //   - Limpia: quita las que terminaron en la lista final y las que ya no están en las fuentes
     private Set<String> computeExcludedIds(Set<String> previouslyExcluded, List<Song> dbSongs,
                                             Set<String> spotifyIds, Set<String> sourceIds,
-                                            Set<String> finalSongIds, boolean restoreRemoved) {
+                                            Set<String> finalSongIds, Set<String> restoredIds) {
         Set<String> excluded = new HashSet<>(previouslyExcluded);
 
-        if (!restoreRemoved) {
-            // Detectar nuevas exclusiones: estaban en BD, el usuario las quitó de Spotify,
-            // pero siguen en las fuentes → marcarlas como excluidas
-            for (Song s : dbSongs) {
-                if (!s.isExcluded() && !spotifyIds.contains(s.getSpotifyId())
-                        && sourceIds.contains(s.getSpotifyId())) {
-                    excluded.add(s.getSpotifyId());
-                }
+        // Detectar nuevas exclusiones: canciones que el usuario quitó de Spotify y decidió NO restaurar
+        for (Song s : dbSongs) {
+            if (!s.isExcluded() && !spotifyIds.contains(s.getSpotifyId())
+                    && sourceIds.contains(s.getSpotifyId())
+                    && !restoredIds.contains(s.getSpotifyId())) {
+                excluded.add(s.getSpotifyId());
             }
         }
 

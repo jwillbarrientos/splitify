@@ -5,10 +5,11 @@ Aplicación web que organiza tus playlists de Spotify por **idioma**, **género 
 ## Funcionalidades
 
 - **Login con Spotify** (OAuth 2.0) con perfil del usuario en el header.
-- **Sincronización de playlists** desde Spotify (incluye *Liked Songs*) con clasificación automática de género e idioma vía ChatGPT (GPT-4.1-nano).
-- **Crear playlists organizadas** por idioma, por género, por fecha de lanzamiento, o combinaciones de los tres en una sola operación.
-- **Crear playlists personalizadas** combinando filtros de idioma + género + artista (filtros dinámicos: solo aparecen los valores presentes en las playlists origen).
-- **Actualizar playlists de Splitify**: detecta canciones nuevas en las fuentes, conserva canciones agregadas manualmente desde Spotify, recuerda decisiones de exclusión y reordena por fecha de lanzamiento.
+- **Sincronización de playlists** desde Spotify (incluye *Liked Songs*) con clasificación automática de género e idioma vía ChatGPT (GPT-4.1-nano). La resincronización también refleja en la app cualquier cambio de nombre o foto que se haya hecho directamente en Spotify, incluso sobre las playlists creadas por Splitify.
+- **Crear playlists organizadas** por idioma, por género, por fecha de lanzamiento, o combinaciones de los tres en una sola operación. Antes de crear, se muestra un modal con los nombres por defecto editables.
+- **Crear playlists personalizadas** combinando filtros de idioma + género + artista (filtros dinámicos: solo aparecen los valores presentes en las playlists origen). Los filtros se persisten y se re-aplican al actualizar.
+- **Actualizar playlists de Splitify**: detecta canciones nuevas en las fuentes, conserva canciones agregadas manualmente desde Spotify, permite elegir con checkboxes individuales cuáles canciones eliminadas restaurar (con agrupación por playlist en lote) y reordena por fecha de lanzamiento.
+- **Editar metadatos de playlists Splitify** desde la home: renombrar inline (ícono de lápiz siempre visible) y cambiar foto (overlay al pasar el cursor sobre la imagen). Los cambios se propagan a Spotify al instante.
 - **Gestión en lote** de playlists de Splitify (eliminar / actualizar varias a la vez).
 
 Detalle completo en `REQUIREMENTS.adoc` y `ARCHITECTURE.adoc`.
@@ -56,8 +57,10 @@ splitify/
 │   │   ├── App.jsx                        ← Rutas + AuthLayout
 │   │   ├── pages/                         ← LoginPage, MainPage, PlaylistDetailPage
 │   │   ├── components/                    ← Header, SyncOverlay, PlaylistCard,
-│   │   │                                    SplitifyCard, OrganizeModal,
-│   │   │                                    CustomOrganizeModal, ErrorModal
+│   │   │                                    SplitifyCard (rename + cambiar foto),
+│   │   │                                    OrganizeModal, ConfirmPlaylistsModal (nombres editables),
+│   │   │                                    CustomOrganizeModal, RefreshConfirmModal,
+│   │   │                                    ErrorModal
 │   │   └── services/api.js
 │   ├── vite.config.js                     ← Proxy /api → :8080, build → static/
 │   └── package.json
@@ -68,8 +71,10 @@ splitify/
 │   ├── service/                           ← SpotifyService, ClassificationService, SpotifyApiClient
 │   ├── model/                             ← Playlist, Song, SongClassification, SplitifyPlaylistSource
 │   ├── dto/                               ← SpotifyDto, PlaylistDto, SongDto, UserProfileDto,
-│   │                                        CreatePlaylistsRequest, CreateCustomPlaylistRequest,
-│   │                                        AvailableFiltersDto, RefreshPreviewDto
+│   │                                        CreatePlaylistsRequest, CreatePlaylistsFromSpecsRequest,
+│   │                                        PlaylistCreateSpec, CreateCustomPlaylistRequest,
+│   │                                        AvailableFiltersDto, RefreshPreviewDto, RefreshRequest,
+│   │                                        BatchRefreshRequest, BatchRefreshPreviewDto
 │   └── repository/                        ← *Repository (Spring Data JPA)
 ├── src/main/resources/
 │   ├── application.properties

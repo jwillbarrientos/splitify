@@ -22,7 +22,7 @@ function FilterList({ icon: Icon, title, items, selected, onToggle }) {
         <span className="text-sm font-bold text-white">{title}</span>
         <span className="text-xs text-[#A1A1AA]">({selected.size}/{items.length})</span>
       </div>
-      <div className="flex h-40 flex-col overflow-y-auto rounded-lg border border-[#27272A] bg-[#0A0A0A]">
+      <div className="flex h-40 flex-col overflow-y-auto overscroll-contain rounded-lg border border-[#27272A] bg-[#0A0A0A]">
         {items.length === 0 ? (
           <div className="flex h-full items-center justify-center px-4 text-center text-xs text-[#71717A]">
             Sin opciones disponibles

@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { X, Sparkles, Languages, Music, Calendar, SlidersHorizontal, Check } from 'lucide-react'
-import { createOrganizedPlaylists } from '../services/api'
 
 function Checkbox({ checked }) {
   return (
@@ -32,13 +31,12 @@ function OptionCard({ icon: Icon, title, description, checked, onToggle }) {
   )
 }
 
-function OrganizeModal({ visible, onClose, selectedIds, onPlaylistsCreated, onOpenCustom }) {
+function OrganizeModal({ visible, onClose, onContinueToConfirm, onOpenCustom }) {
   const [options, setOptions] = useState({
     idioma: false,
     genero: false,
     fecha: false,
   })
-  const [creating, setCreating] = useState(false)
 
   if (!visible) return null
 
@@ -48,18 +46,10 @@ function OrganizeModal({ visible, onClose, selectedIds, onPlaylistsCreated, onOp
 
   const anySelected = options.idioma || options.genero || options.fecha
 
-  const handleCreate = async () => {
-    if (!anySelected || creating) return
-    setCreating(true)
-    try {
-      const newPlaylists = await createOrganizedPlaylists(selectedIds, options)
-      onPlaylistsCreated(newPlaylists)
-      setOptions({ idioma: false, genero: false, fecha: false })
-    } catch (err) {
-      console.error('Error creating playlists:', err)
-    } finally {
-      setCreating(false)
-    }
+  const handleCreate = () => {
+    if (!anySelected) return
+    onContinueToConfirm(options)
+    setOptions({ idioma: false, genero: false, fecha: false })
   }
 
   return (
@@ -104,16 +94,16 @@ function OrganizeModal({ visible, onClose, selectedIds, onPlaylistsCreated, onOp
             checked={options.fecha}
             onToggle={() => toggleOption('fecha')}
           />
-          {/* Crear Playlists button */}
+          {/* Continuar button */}
           <button
             onClick={handleCreate}
-            disabled={!anySelected || creating}
+            disabled={!anySelected}
             className={`flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-green-500 to-blue-500 px-5 py-2.5 text-sm font-semibold text-black transition ${
-              anySelected && !creating ? 'hover:opacity-90' : 'opacity-40 cursor-not-allowed'
+              anySelected ? 'hover:opacity-90' : 'opacity-40 cursor-not-allowed'
             }`}
           >
             <Sparkles size={16} />
-            {creating ? 'Creando playlists...' : 'Crear Playlists'}
+            Crear Playlists
           </button>
 
         </div>
