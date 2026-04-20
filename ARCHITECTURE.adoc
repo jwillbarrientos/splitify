@@ -2,8 +2,8 @@
 
 == Splitify
 
-*Versión:* 2.1
-*Fecha:* 2026-04-16
+*Versión:* 2.3
+*Fecha:* 2026-04-20
 *Autor:* Barri
 
 '''
@@ -73,7 +73,9 @@ ____
 |Navegación |React Router v7 |Router estándar de la comunidad React para SPAs
 |Backend |Spring Boot 4.0.4 (Java 25) |Framework estándar del ecosistema Java, integración nativa con OAuth2 y JPA
 |Persistencia |Spring Data JPA |Abstracción sobre JPA para acceso a datos
-|Base de datos |SQLite (desarrollo) / PostgreSQL (producción) |SQLite para desarrollo local sin configuración; PostgreSQL para producción
+|Base de datos |SQLite (dev y prod) |SQLite en ambos entornos. En prod se activa WAL mode (`journal_mode=WAL`) para permitir lecturas concurrentes sin bloquear escrituras; el volumen de escritura de Splitify (syncs ocasionales por usuario) cabe holgadamente sin necesidad de un motor cliente-servidor.
+|Reverse proxy |Caddy v2 |Termina TLS (certificados Let's Encrypt automáticos, renovación transparente), reenvía a Spring Boot en `localhost:8080`, comprime respuestas con gzip.
+|Gestor de servicios |systemd |Corre el JAR como servicio (`splitify.service`), reinicia automático ante crash, inyecta variables de entorno desde `/etc/splitify.env`, aplica hardening (`NoNewPrivileges`, `ProtectSystem`, etc).
 |Autenticación |Spring Security + OAuth 2.0 |Integración directa con Spotify OAuth
 |IA (clasificación) |OpenAI API + GPT-4.1-nano |API REST de OpenAI (via RestClient); GPT-4.1-nano es suficiente y económico para clasificar género e idioma
 |Build |Gradle (Kotlin DSL) + plugin Node |Build unificado: Gradle orquesta tanto el backend como el frontend
@@ -87,8 +89,12 @@ ____
 [source]
 ----
 splitify/
+├── .github/
+│   └── workflows/
+│       └── deploy.yml                 ← CI/CD: auto-deploy a prod en cada push a master (GitHub Actions)
 ├── build.gradle.kts
 ├── settings.gradle.kts
+├── deploy.sh                          ← Script de deploy manual: build JAR → scp → systemctl restart
 ├── frontend/                          ← Proyecto React (Vite)
 │   ├── package.json
 │   ├── vite.config.js
@@ -149,7 +155,8 @@ splitify/
 │   │       ├── SongClassificationRepository.java
 │   │       └── SplitifyPlaylistSourceRepository.java
 │   └── resources/
-│       ├── application.properties
+│       ├── application.properties           ← Config base (dev)
+│       ├── application-prod.properties      ← Overrides de producción (SQLite en /opt/splitify, redirect URI https, forward-headers)
 │       └── static/                    ← Build de React (generado por Vite)
 └── src/test/
     └── java/...
@@ -450,34 +457,233 @@ public class SpaController {
 
 == 11. Despliegue
 
-=== 11.1 Estrategia
+=== 11.1 Topología de Producción
 
-El despliegue en Linode consiste en ejecutar el JAR autónomo generado por el build:
-
-[source,bash]
+[source]
 ----
-java -jar splitify.jar --spring.profiles.active=prod
+                                  Internet
+                                      │
+                                      ▼
+                          ┌───────────────────────┐
+                          │  Cloudflare DNS only  │   ← A records @ y www
+                          │  splitifyapp.app      │     apuntan a la IP de Linode
+                          └───────────┬───────────┘     (proxy naranja OFF)
+                                      │
+                                      ▼
+                         ┌─────────────────────────┐
+                         │  Linode Cloud Firewall  │   ← permite solo 22, 80, 443
+                         │  (default inbound DROP) │     bloquea todo lo demás
+                         └───────────┬─────────────┘
+                                     │
+       ┌─────────────────────────────┼─────────────────────────────────┐
+       │                       Linode Nanode 1GB                       │
+       │                       Ubuntu 24.04 LTS                        │
+       │                                                               │
+       │                     ┌───────▼────────┐                        │
+       │        puertos 80/443│     Caddy     │  ← HTTPS via Let's Encrypt
+       │                     │  (systemd)     │    HTTP-01 challenge
+       │                     │  Caddyfile     │    reverse_proxy + gzip
+       │                     └───────┬────────┘                        │
+       │                             │ HTTP localhost:8080             │
+       │                             ▼                                 │
+       │               ┌──────────────────────────┐                    │
+       │               │  splitify.service        │   user: splitify   │
+       │               │  java -jar splitify.jar  │   env desde        │
+       │               │  profile=prod            │   /etc/splitify.env│
+       │               │  (systemd)               │                    │
+       │               └──────────┬───────────────┘                    │
+       │                          │ JDBC                               │
+       │                          ▼                                    │
+       │          ┌──────────────────────────────────┐                 │
+       │          │  /opt/splitify/splitify.db       │                 │
+       │          │  SQLite WAL mode                 │                 │
+       │          └──────────────────────────────────┘                 │
+       │                                                               │
+       │   Outbound → Spotify Web API, OpenAI API (classification)     │
+       └───────────────────────────────────────────────────────────────┘
 ----
 
-=== 11.2 Perfiles de Configuración
+=== 11.2 Infraestructura
 
 |===
-|Perfil |Base de datos |Uso
+|Componente |Detalle
 
-|`dev` (por defecto) |SQLite (archivo local) |Desarrollo local
-|`prod` |PostgreSQL |Producción en Linode
+|Hosting |Linode Nanode 1GB (1 vCPU, 1GB RAM, 25GB SSD), Ubuntu 24.04 LTS
+|DNS |Cloudflare (registros `A` para `@` y `www` → IP pública de la Linode, con proxy en modo "DNS only" / nube gris para que Let's Encrypt pueda responder el HTTP-01 challenge)
+|Firewall |Linode Cloud Firewall `splitify-fw` con política por defecto *Drop* inbound y reglas *Accept* para TCP 22 (SSH), 80 (HTTP) y 443 (HTTPS). Outbound accept por defecto (necesario para Spotify API, OpenAI API, apt, Let's Encrypt).
+|Dominio |`splitifyapp.app` + `www.splitifyapp.app` — el TLD `.app` está en HSTS preload, por lo que los navegadores fuerzan HTTPS automáticamente.
 |===
 
-=== 11.3 Variables de Entorno Requeridas (Producción)
+=== 11.3 Hardening del Servidor
+
+* *Usuario de servicio:* la app corre como usuario no privilegiado `splitify` (miembro del grupo `sudo` con `NOPASSWD` declarado en `/etc/sudoers.d/splitify` — válido porque el acceso SSH es exclusivamente por llave).
+* *SSH:* en `/etc/ssh/sshd_config` y `/etc/ssh/sshd_config.d/*.conf` se deshabilita `PasswordAuthentication` y `PermitRootLogin`, y se exige `PubkeyAuthentication`. Las llaves públicas autorizadas están en `/home/splitify/.ssh/authorized_keys` (permisos `600`, owner `splitify`).
+* *Hardening del servicio systemd:* la unit `splitify.service` aplica:
+** `User=splitify`, `Group=splitify` — evita ejecución como root.
+** `NoNewPrivileges=true` — no puede escalar privilegios vía setuid.
+** `PrivateTmp=true` — `/tmp` y `/var/tmp` aislados.
+** `ProtectSystem=full` — `/usr`, `/boot`, `/etc` son read-only.
+** `ProtectHome=read-only` — los `/home` son read-only desde el servicio.
+** `ReadWritePaths=/opt/splitify` — única ruta escribible, donde vive el JAR y la DB.
+
+=== 11.4 Perfiles de Configuración
+
+|===
+|Perfil |Propiedades que sobreescribe |Uso
+
+|(default / dev) |`application.properties` base: SQLite `splitify.db` relativo al working dir, redirect URI `http://127.0.0.1:8080/...` |Desarrollo local
+|`prod` |`application-prod.properties`: SQLite en `/opt/splitify/splitify.db?journal_mode=WAL&synchronous=NORMAL`, redirect URI `https://splitifyapp.app/login/oauth2/code/spotify`, `server.forward-headers-strategy=native` (para que Spring confíe en `X-Forwarded-Proto` de Caddy y genere URLs OAuth con `https://`) |Producción en Linode
+|===
+
+El perfil activo se fija vía `SPRING_PROFILES_ACTIVE=prod` declarado en `/etc/splitify.env` (cargado por systemd como `EnvironmentFile`).
+
+=== 11.5 Variables de Entorno (Producción)
+
+Ubicación: `/etc/splitify.env` (permisos `640`, owner `root:splitify`; nunca en el JAR ni en el repo).
 
 |===
 |Variable |Descripción
 
-|`SPOTIFY_CLIENT_ID` |Client ID de la aplicación registrada en Spotify Developer
+|`SPOTIFY_CLIENT_ID` |Client ID de la app registrada en Spotify Developer Dashboard
 |`SPOTIFY_CLIENT_SECRET` |Client Secret de Spotify
-|`OPENAI_API_KEY` |API key para la clasificación de género e idioma
-|`DATABASE_URL` |URL de conexión a PostgreSQL
+|`OPENAI_API_KEY` |API key para ChatGPT (clasificación de género e idioma)
+|`SPRING_PROFILES_ACTIVE` |Fijado a `prod`
 |===
+
+=== 11.6 Archivos Clave en el Servidor
+
+|===
+|Ruta |Propósito |Permisos
+
+|`/opt/splitify/splitify.jar` |JAR ejecutable (backend + frontend estático) |`644 splitify:splitify`
+|`/opt/splitify/splitify.db` |Base SQLite en WAL mode (creada al primer arranque) |`644 splitify:splitify`
+|`/etc/splitify.env` |Secretos y profile activo |`640 root:splitify`
+|`/etc/systemd/system/splitify.service` |Unit de systemd |`644 root:root`
+|`/etc/caddy/Caddyfile` |Config de Caddy (reverse proxy + HTTPS automático) |`644 root:root`
+|===
+
+=== 11.7 Caddy y HTTPS Automático
+
+`/etc/caddy/Caddyfile`:
+
+[source]
+----
+{
+    email hofmanndavid@gmail.com
+}
+
+splitifyapp.app, www.splitifyapp.app {
+    reverse_proxy localhost:8080
+    encode gzip
+}
+----
+
+Al recibir el primer request, Caddy:
+
+1. Detecta que no tiene certificado para `splitifyapp.app`.
+2. Inicia el flujo ACME contra Let's Encrypt.
+3. Resuelve el challenge HTTP-01 sirviéndose a sí mismo en el puerto 80 (por eso el puerto 80 debe estar abierto en el Cloud Firewall y sin proxy de Cloudflare interceptando).
+4. Obtiene el certificado, lo almacena en `/var/lib/caddy/` y lo usa para TLS.
+5. Los renueva solo (~30 días antes del vencimiento).
+
+El puerto 8080 de Spring Boot *no* está expuesto al exterior: solo Caddy, corriendo en el mismo host, lo puede alcanzar vía `localhost`.
+
+=== 11.8 Runbook de Deploy
+
+El script `deploy.sh` en la raíz del repo automatiza todo el ciclo:
+
+[source,bash]
+----
+#!/usr/bin/env bash
+set -euo pipefail
+
+SERVER="splitify@192.155.93.19"
+REMOTE_JAR="/opt/splitify/splitify.jar"
+LOCAL_JAR="build/libs/sorted-music-0.0.1-SNAPSHOT.jar"
+
+./gradlew clean build -x test                 # 1. build JAR (frontend+backend)
+scp "$LOCAL_JAR" "$SERVER:$REMOTE_JAR"        # 2. sube el JAR al server
+ssh "$SERVER" "sudo systemctl restart splitify"  # 3. reinicia el servicio
+ssh "$SERVER" "sudo systemctl status splitify --no-pager -l | head -n 20"
+----
+
+Uso: `./deploy.sh` desde la raíz del proyecto. Tarda ~1–3 minutos (el build es lo más pesado).
+
+=== 11.9 Runbook de Troubleshooting
+
+|===
+|Síntoma |Diagnóstico
+
+|502 Bad Gateway en el browser |Spring Boot no está corriendo o crasheó. Ver logs: `sudo journalctl -u splitify -n 200 --no-pager`
+|Error de certificado / HTTPS rompe |Verificar DNS (`nslookup splitifyapp.app 1.1.1.1` debe devolver la IP de la Linode, no Cloudflare). Verificar que el puerto 80 esté abierto en el Cloud Firewall. Ver logs de Caddy: `sudo journalctl -u caddy -n 100 --no-pager`
+|OAuth de Spotify devuelve error `redirect_uri_mismatch` |El redirect URI de prod no está registrado en Spotify Developer Dashboard o no coincide. Debe existir `https://splitifyapp.app/login/oauth2/code/spotify`.
+|OAuth devuelve "invalid client" o redirige a `http://` |Falta `server.forward-headers-strategy=native` en `application-prod.properties`, o el profile `prod` no se activó. Verificar `sudo systemctl show splitify -p Environment`.
+|La app arranca pero no persiste datos |Verificar permisos de `/opt/splitify/` (debe permitir escritura al usuario `splitify`) y que el `ReadWritePaths` de systemd lo incluya.
+|===
+
+=== 11.10 Rollback
+
+Dado que el deploy sobreescribe `/opt/splitify/splitify.jar`, el rollback consiste en volver a construir y desplegar una versión previa del código (git checkout al commit anterior + `./deploy.sh`, o `git revert` + push para reutilizar CI/CD). No hay snapshotting automático del JAR; si se requiere rollback inmediato, mantener una copia manual con timestamp antes de cada deploy, ej.:
+
+[source,bash]
+----
+ssh splitify@<IP> "sudo cp /opt/splitify/splitify.jar /opt/splitify/splitify.jar.$(date +%Y%m%d-%H%M%S)"
+----
+
+=== 11.11 CI/CD (Auto-Deploy con GitHub Actions)
+
+El archivo `.github/workflows/deploy.yml` define un pipeline que se ejecuta *automáticamente en cada push a `master`* (y se puede disparar manualmente desde la UI de GitHub con `workflow_dispatch`). Esto reemplaza al `deploy.sh` manual en el flujo diario: con hacer `git push`, el código llega a producción sin pasos adicionales.
+
+==== 11.11.1 Pipeline
+
+[source]
+----
+git push (master)
+       │
+       ▼
+┌──────────────────────────┐
+│   GitHub Actions runner  │  (ubuntu-latest, efímero)
+│                          │
+│   1. checkout            │
+│   2. setup JDK 25 Temurin│
+│   3. setup Node 20       │
+│   4. ./gradlew build -x test   ← genera el JAR
+│   5. ssh-agent + SSH key │
+│   6. ssh-keyscan server  │
+│   7. scp JAR → /opt/splitify/splitify.jar
+│   8. ssh sudo systemctl restart splitify
+│   9. ssh systemctl is-active   ← health check
+└──────────────────────────┘
+       │
+       ▼
+  Linode server actualizado
+----
+
+==== 11.11.2 Configuración
+
+*Secretos del repo* (GitHub → Settings → Secrets and variables → Actions):
+
+|===
+|Secreto |Valor
+
+|`SSH_PRIVATE_KEY` |Contenido completo de una llave privada SSH *dedicada para CI* (distinta de la personal del desarrollador). Generada con `ssh-keygen -t ed25519 -f ~/.ssh/github_actions_splitify -N ""` sin passphrase (el runner no puede responder interactivamente).
+|`SSH_HOST` |IP pública o dominio del server (ej: `192.155.93.19`).
+|`SSH_USER` |`splitify` (el usuario de servicio creado en Fase 1 del hardening).
+|===
+
+*Lado del server:* la llave pública correspondiente (`~/.ssh/github_actions_splitify.pub`) debe estar agregada en `/home/splitify/.ssh/authorized_keys`. Se puede revocar en cualquier momento quitando esa línea — el deploy manual con `deploy.sh` sigue funcionando porque usa la llave personal del desarrollador.
+
+==== 11.11.3 Propiedades del pipeline
+
+* *Concurrencia:* `concurrency: deploy-prod` con `cancel-in-progress: false` — si hay una corrida en curso y llega otra, esta espera a que termine la primera en vez de pisarla. Evita deploys en carrera.
+* *Timeout:* 15 minutos (el build + scp + restart tarda ~3–5 min, el resto es margen).
+* *Dispara en:* push a `master` y manual (`workflow_dispatch`).
+* *Fallo:* si cualquier paso falla (build, scp, restart, health check), el workflow queda en rojo y GitHub notifica por mail. El server queda con el JAR previo aún corriendo (systemd solo hace restart si el scp tuvo éxito); si el restart falla pero el servicio quedó detenido, se diagnostica con `sudo journalctl -u splitify -n 200`.
+* *Auditoría:* cada deploy queda en la pestaña Actions del repo, con logs, duración y el commit que lo disparó.
+
+==== 11.11.4 Convivencia con `deploy.sh`
+
+`deploy.sh` sigue existiendo y sirve para casos de emergencia en los que GitHub Actions esté caído o se necesite deployar una versión local no commiteada (ej: probar un hotfix sin pasar por el repo). El workflow de CI usa exactamente los mismos pasos, así que ambos caminos producen el mismo resultado.
 
 '''
 
@@ -498,4 +704,6 @@ java -jar splitify.jar --spring.profiles.active=prod
 |2026-04-09 |1.9 |Refresh de playlists Splitify reescrito: ahora lee el estado real de la playlist en Spotify para detectar cambios manuales (canciones agregadas/eliminadas directamente). Usa `PUT /playlists/{id}/items` para reemplazar el contenido completo y corregir el orden por fecha. Campo `next` agregado a `TracksResponse` para paginación. Nuevo método `fetchSpotifyPlaylistTracks` para leer todas las canciones de una playlist. Nuevo método `replaceSpotifyPlaylistTracks` para reemplazar contenido. ClassificationService: clasificación en lotes de 20 con reintento (2 intentos). Nueva entidad `SongClassification` para caché global de clasificaciones. Eliminado caché in-memory de SpotifyService. Verificación de playlists Splitify eliminadas de Spotify durante el sync.
 |2026-04-09 |2.0 |Nuevos campos en Song: `excluded` (recuerda decisiones de no-restaurar permanentemente) y `manuallyAdded` (preserva canciones agregadas manualmente por el usuario en Spotify). Nuevo endpoint `GET /api/playlists/splitify/{id}/refresh/preview` para vista previa de cambios antes de actualizar. Lógica de refresh corregida: canciones eliminadas de playlists origen ahora se eliminan de la playlist Splitify; canciones manuales se preservan permanentemente. Playlist ordering: consulta con `ORDER BY CASE WHEN spotifyId = 'liked_songs' THEN 0 ELSE 1 END, id ASC` para orden consistente. Frontend: re-sincronización ahora actualiza también la lista de playlists Splitify. Estructura del proyecto actualizada: entidades `SongClassification` y `SplitifyPlaylistSource`, repositorios y DTOs faltantes añadidos. Servicio `PlaylistService` eliminado de documentación (no existe, toda la lógica está en `SpotifyService`). Campos inexistentes `languages`, `genres`, `artists` eliminados de entidad Playlist en documentación.
 |2026-04-16 |2.1 |Nuevos campos en Playlist: `customLanguages`, `customGenres`, `customArtists` (TEXT, JSON arrays) — persisten los filtros usados al crear playlists personalizadas (RF7), permitiendo re-aplicarlos en refresh (antes se perdían y se traían todas las canciones de las fuentes). Refactor de refresh: `restoreRemoved` (boolean) → `restoredSongIds` (lista de spotifyIds); ahora los endpoints de refresh toman body JSON. Nuevos endpoints: `POST /create/combined/preview` + `POST /create/combined/confirm` (flujo 2-pasos con nombres editables para RF6.1), `POST /batch/refresh/preview` (preview agrupado para batch), `PUT /splitify/{id}/rename`, `PUT /splitify/{id}/image` (RF2.3). Nuevos DTOs: `PlaylistCreateSpec`, `CreatePlaylistsFromSpecsRequest`, `RefreshRequest`, `BatchRefreshRequest`, `BatchRefreshPreviewDto`. Métodos nuevos en `SpotifyApiClient`: `fetchPlaylist`, `renamePlaylist`, `uploadPlaylistImage`. `syncPlaylists` ahora también sincroniza metadata (nombre, imagen) de playlists Splitify sin tocar canciones; `refreshSplitifyPlaylist` también las sincroniza. Frontend: nuevos componentes `ConfirmPlaylistsModal` (nombres editables), `RefreshConfirmModal` (checkboxes por canción + agrupación por playlist en batch). `SplitifyCard` ahora permite renombrar inline con ícono de lápiz siempre visible y cambiar foto mediante overlay al pasar el cursor (imagen redimensionada a 640px JPEG en el cliente). Nuevo scope OAuth: `ugc-image-upload`. Scroll propagation en modales arreglado con `overscroll-contain`.
+|2026-04-20 |2.2 |Primer despliegue productivo en Linode (`splitifyapp.app`). Sección 11 (Despliegue) reescrita completa con topología real: Cloudflare DNS (proxy off) → Linode Cloud Firewall (solo 22/80/443) → Caddy (HTTPS via Let's Encrypt) → Spring Boot en `localhost:8080` como servicio systemd → SQLite WAL en `/opt/splitify/`. Nuevas subsecciones: 11.1 topología con diagrama, 11.2 infraestructura (Nanode 1GB, Ubuntu 24.04), 11.3 hardening (usuario no-root, SSH solo por llave, systemd `ProtectSystem`/`NoNewPrivileges`), 11.4 perfiles con `application-prod.properties`, 11.5 env vars (`SPRING_PROFILES_ACTIVE=prod`; se elimina `DATABASE_URL` porque ya no se usa Postgres), 11.6 archivos clave en el server, 11.7 Caddyfile y flujo ACME, 11.8 runbook de deploy con `deploy.sh`, 11.9 troubleshooting, 11.10 rollback. Stack tecnológico actualizado: BD de prod pasa de PostgreSQL a SQLite con WAL mode (suficiente para el perfil de uso). Nuevas filas: Caddy v2 (reverse proxy + HTTPS automático) y systemd (gestor de servicios). Estructura del proyecto: agregado `deploy.sh` en la raíz y `application-prod.properties` en resources. Nuevo archivo `application-prod.properties` con: URL SQLite absoluta en `/opt/splitify/splitify.db` con `journal_mode=WAL&synchronous=NORMAL`, redirect URI `https://splitifyapp.app/login/oauth2/code/spotify`, `server.forward-headers-strategy=native` (crítico para que OAuth funcione detrás de Caddy).
+|2026-04-20 |2.3 |CI/CD agregado. Nueva subsección 11.11 que describe el pipeline de GitHub Actions (`.github/workflows/deploy.yml`): en cada push a `master` compila el JAR en un runner `ubuntu-latest` (JDK 25 Temurin + Node 20), lo sube por SCP al server y reinicia el servicio systemd. Requiere tres secretos en el repo (`SSH_PRIVATE_KEY`, `SSH_HOST`, `SSH_USER`) y una llave SSH dedicada para CI (independiente de la personal). Concurrencia limitada a una corrida (`concurrency: deploy-prod`) con `cancel-in-progress: false` para evitar carreras. `deploy.sh` se conserva para deploys manuales de emergencia. Estructura del proyecto: agregado `.github/workflows/deploy.yml`.
 |===

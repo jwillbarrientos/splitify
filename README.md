@@ -38,11 +38,11 @@ Antes de levantar el backend hay que exportar:
 
 En IntelliJ se configuran en la *Run Configuration* de `SortedMusicApplication`.
 
-> **Nota OAuth:** la *Redirect URI* registrada en Spotify debe apuntar al backend (`http://127.0.0.1:8080/login/oauth2/code/spotify`), no al puerto de Vite.
+> **Nota OAuth:** en el Spotify Developer Dashboard hay que tener registradas **dos** Redirect URIs: la de dev (`http://127.0.0.1:8080/login/oauth2/code/spotify`) y la de prod (`https://splitifyapp.app/login/oauth2/code/spotify`). No apuntar al puerto de Vite.
 
 ## Stack Técnico
 
-- **Backend:** Java 25 + Spring Boot 4.0.4, Spring Security (OAuth2), Spring Data JPA, SQLite (dev) / PostgreSQL (prod), Lombok, JUnit 5.
+- **Backend:** Java 25 + Spring Boot 4.0.4, Spring Security (OAuth2), Spring Data JPA, SQLite (dev y prod, con WAL mode en prod), Lombok, JUnit 5.
 - **Frontend:** React 19, Vite 8, Tailwind CSS 4, React Router v7.
 - **Build:** Gradle (Kotlin DSL) con plugin `node-gradle` que orquesta el build del frontend y produce un único JAR.
 - **APIs externas:** Spotify Web API y OpenAI API (GPT-4.1-nano).
@@ -51,6 +51,7 @@ En IntelliJ se configuran en la *Run Configuration* de `SortedMusicApplication`.
 
 ```
 splitify/
+├── .github/workflows/deploy.yml           ← CI/CD: auto-deploy a prod en push a master
 ├── frontend/                              ← React SPA (Vite + Tailwind)
 │   ├── src/
 │   │   ├── main.jsx
@@ -77,8 +78,10 @@ splitify/
 │   │                                        BatchRefreshRequest, BatchRefreshPreviewDto
 │   └── repository/                        ← *Repository (Spring Data JPA)
 ├── src/main/resources/
-│   ├── application.properties
+│   ├── application.properties             ← Config base (dev)
+│   ├── application-prod.properties        ← Overrides de producción (SQLite WAL, HTTPS redirect URI)
 │   └── static/                            ← build de Vite (gitignored)
+├── deploy.sh                              ← Deploy manual al server (alternativa al CI)
 ├── build.gradle.kts
 ├── REQUIREMENTS.adoc
 ├── ARCHITECTURE.adoc
@@ -163,7 +166,47 @@ Para acceso completo se requiere *Extended Quota Mode* (aprobación manual de Sp
 
 ## Despliegue
 
-Despliegue objetivo: **Linode**. Se ejecuta el JAR autónomo con perfil `prod` y PostgreSQL como base de datos. Variables de entorno requeridas: las del cuadro de arriba más `DATABASE_URL`.
+La app corre en una **Linode Nanode 1GB (Ubuntu 24.04)** en `https://splitifyapp.app`, detrás de **Caddy** (reverse proxy con HTTPS automático via Let's Encrypt). Spring Boot corre como servicio `systemd` (`splitify.service`) bajo el usuario no-root `splitify`. La base SQLite vive en `/opt/splitify/splitify.db` con WAL mode.
+
+Topología resumida:
+
+```
+Cloudflare DNS (proxy off) → Linode Cloud Firewall (22/80/443) →
+Caddy (HTTPS, Let's Encrypt) → Spring Boot en localhost:8080 (systemd) → SQLite WAL
+```
+
+**Secretos en el server:** `/etc/splitify.env` contiene `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, `OPENAI_API_KEY` y `SPRING_PROFILES_ACTIVE=prod` (permisos `640`). Son inyectados por `systemd` como variables de entorno al arrancar el servicio.
+
+### Deploy automático (CI/CD)
+
+Cada `git push` a `master` dispara el workflow `.github/workflows/deploy.yml` que:
+
+1. Compila el JAR en un runner de GitHub Actions (JDK 25 Temurin + Node 20).
+2. Sube el JAR por SCP a `/opt/splitify/splitify.jar`.
+3. Reinicia el servicio con `sudo systemctl restart splitify`.
+4. Health-check con `systemctl is-active splitify`.
+
+Requiere tres secretos en el repo (Settings → Secrets and variables → Actions):
+
+| Secreto | Valor |
+|---|---|
+| `SSH_PRIVATE_KEY` | Llave privada SSH **dedicada para CI** (distinta de la personal, generada sin passphrase) |
+| `SSH_HOST` | IP o dominio del server |
+| `SSH_USER` | `splitify` |
+
+La llave pública correspondiente tiene que estar en `/home/splitify/.ssh/authorized_keys` del server.
+
+### Deploy manual (fallback)
+
+Existe `deploy.sh` en la raíz del repo para deploys puntuales (emergencias, probar un hotfix no commiteado, CI caído):
+
+```bash
+./deploy.sh
+```
+
+Hace lo mismo que el workflow pero desde tu máquina, usando tu llave SSH personal.
+
+Detalle completo en `ARCHITECTURE.adoc` (sección 11).
 
 ## Documentación
 

@@ -2,8 +2,8 @@
 
 == Splitify
 
-*Versión:* 2.1
-*Fecha:* 2026-04-16
+*Versión:* 2.3
+*Fecha:* 2026-04-20
 *Autor:* Barri
 
 '''
@@ -45,7 +45,8 @@ Usuarios de Spotify que desean organizar automáticamente sus bibliotecas musica
 
 * Requiere una cuenta activa de Spotify.
 * La clasificación de género depende de la disponibilidad de la API de ChatGPT.
-* El despliegue objetivo es en Linode.
+* La aplicación se despliega en un servidor Linode (Ubuntu 24.04 LTS) con Caddy como reverse proxy y HTTPS automático via Let's Encrypt.
+* El dominio de producción es `splitifyapp.app`.
 
 == 3. Catálogos del Sistema
 
@@ -368,12 +369,20 @@ El usuario puede acceder a cualquier playlist (de usuario o de Splitify) para co
 == 7. Requerimientos No Funcionales
 
 |===
-|# |Categoría |Descripción 
+|# |Categoría |Descripción
 
-|RNF1 |Plataforma |Aplicación web (Spring Boot + React SPA)
-|RNF2 |Autenticación |OAuth 2.0 con Spotify 
-|RNF3 |Despliegue |Servidor Linode 
-|RNF4 |Lenguaje |Java 25 
+|RNF1 |Plataforma |Aplicación web (Spring Boot + React SPA empaquetados en un único JAR)
+|RNF2 |Autenticación |OAuth 2.0 con Spotify
+|RNF3 |Despliegue |Linode Nanode 1GB (Ubuntu 24.04 LTS). La app corre como servicio systemd (`splitify.service`), con reinicio automático ante crash (`Restart=on-failure`).
+|RNF4 |Lenguaje |Java 25 (Eclipse Temurin JDK)
+|RNF5 |HTTPS obligatorio |Todo el tráfico hacia el dominio público (`splitifyapp.app`) se sirve exclusivamente por HTTPS. Caddy genera y renueva certificados Let's Encrypt automáticamente. El TLD `.app` está en HSTS preload: los navegadores fuerzan HTTPS aunque el usuario escriba `http://`.
+|RNF6 |Red y firewall |Cloud Firewall de Linode permite solo puertos 22 (SSH), 80 (HTTP, usado por Let's Encrypt HTTP-01 challenge y redirect a HTTPS) y 443 (HTTPS). El puerto 8080 (Spring Boot) está expuesto únicamente en `localhost`, accesible solo desde Caddy en el mismo host.
+|RNF7 |Seguridad del servidor |Acceso SSH exclusivamente por llave pública (password auth y login de root deshabilitados en `sshd_config`). La app corre bajo un usuario de servicio sin privilegios (`splitify`), no como root. systemd aplica hardening (`NoNewPrivileges`, `PrivateTmp`, `ProtectSystem=full`, `ProtectHome=read-only`) que limita la superficie de ataque incluso si la app fuese comprometida.
+|RNF8 |Gestión de secretos |`SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` y `OPENAI_API_KEY` se guardan en `/etc/splitify.env` con permisos `640` (owner `root`, group `splitify`). systemd los inyecta como variables de entorno al arrancar el servicio. Los secretos nunca están en el JAR ni en el repositorio.
+|RNF9 |Persistencia |SQLite con WAL mode activo (`journal_mode=WAL`, `synchronous=NORMAL`) para permitir lecturas concurrentes sin bloquear escrituras. La base vive en `/opt/splitify/splitify.db`, fuera del JAR. systemd la expone como `ReadWritePath` autorizado.
+|RNF10 |DNS |Registros `A` para `@` y `www` apuntando a la IP pública de la Linode, gestionados en Cloudflare. El proxy naranja de Cloudflare está deshabilitado (DNS only, nube gris) para que Let's Encrypt pueda completar el challenge HTTP-01 sin intermediarios.
+|RNF11 |Deploy repetible |Existe `deploy.sh` en la raíz del repo que automatiza: build del JAR (Gradle + Vite), subida por SCP a `/opt/splitify/splitify.jar` y reinicio del servicio por SSH. Un solo comando para desplegar cambios.
+|RNF12 |CI/CD (auto-deploy) |Cada push a la rama `master` dispara el workflow `.github/workflows/deploy.yml` que compila el JAR en un runner de GitHub Actions y lo despliega automáticamente al server (el mismo flujo que `deploy.sh`, pero sin intervención local). El workflow también se puede disparar manualmente desde la pestaña Actions (`workflow_dispatch`). La concurrencia está limitada a una sola corrida simultánea (`concurrency: deploy-prod`) para evitar carreras. Requiere tres secretos en el repo: `SSH_PRIVATE_KEY` (llave dedicada para CI, distinta de la personal), `SSH_HOST` (IP o dominio del server) y `SSH_USER` (`splitify`).
 |===
 
 '''
@@ -395,4 +404,6 @@ El usuario puede acceder a cualquier playlist (de usuario o de Splitify) para co
 |2026-04-09 |1.9 |RF2.2 ampliado: la actualización ahora detecta cambios manuales hechos desde Spotify (canciones agregadas/eliminadas directamente en la playlist de Splitify). Canciones agregadas manualmente se conservan y clasifican. Canciones eliminadas manualmente no se re-agregan. Se reordena la playlist completa por fecha de lanzamiento tras cada actualización. Se detecta si la playlist fue eliminada desde Spotify.
 |2026-04-09 |2.0 |RF2.2 reescrito: nuevo flujo con vista previa y diálogo de confirmación para canciones eliminadas manualmente. El sistema ahora recuerda permanentemente las decisiones de exclusión (`excluded`) y las canciones agregadas manualmente (`manuallyAdded`). Las canciones eliminadas de las playlists origen se eliminan de la playlist de Splitify. La re-sincronización ahora también actualiza la lista de playlists de Splitify en el frontend.
 |2026-04-16 |2.1 |Bug fix en RF7 (custom): los filtros personalizados (idiomas, géneros, artistas) ahora se persisten en la entidad Playlist para poder re-aplicarlos en la actualización (RN8 ampliado). RF2.2 mejorado: el modal de conflictos ahora tiene checkboxes individuales por canción (granularidad, no todo-o-nada) y agrupación por playlist en lote. La actualización también sincroniza nombre e imagen desde Spotify. RF6.1 ampliado: nuevo modal de confirmación con nombres por defecto editables antes de crear las playlists. Nuevo RF2.3: edición de metadatos de playlists de Splitify (renombrar inline con ícono de lápiz siempre visible; cambiar foto con overlay al pasar el cursor). La re-sincronización ahora también trae nombre e imagen de las playlists de Splitify desde Spotify. Nuevo scope requerido: `ugc-image-upload`.
+|2026-04-20 |2.2 |Primer despliegue productivo en Linode. Sección 2.3 actualizada: el despliegue deja de ser "objetivo" y pasa a ser real en `splitifyapp.app`. Sección 7 (RNF) reescrita y ampliada: RNF3 ahora especifica Linode Nanode 1GB con Ubuntu 24.04 LTS corriendo bajo systemd; nuevos RNF5 (HTTPS obligatorio con Caddy + Let's Encrypt), RNF6 (Cloud Firewall restringe a puertos 22/80/443; 8080 solo en localhost), RNF7 (SSH solo por llave pública, usuario no-root, hardening de systemd), RNF8 (gestión de secretos en `/etc/splitify.env` con permisos 640), RNF9 (SQLite en WAL mode para concurrencia, DB en `/opt/splitify/`), RNF10 (DNS en Cloudflare con proxy deshabilitado para Let's Encrypt), RNF11 (script `deploy.sh` para deploy repetible).
+|2026-04-20 |2.3 |CI/CD agregado. Nuevo RNF12: cada push a `master` dispara el workflow `.github/workflows/deploy.yml` que compila el JAR en GitHub Actions y lo deploya al server automáticamente. Usa una llave SSH dedicada para CI (secreto `SSH_PRIVATE_KEY` en GitHub) distinta de la llave personal. Concurrencia limitada a una corrida para evitar deploys pisándose.
 |===
