@@ -58,7 +58,7 @@ function LoginPage() {
           className="flex h-12 items-center justify-center gap-2 rounded-lg bg-green-500 text-base font-semibold text-[#0A0A0A] transition hover:bg-green-400"
         >
           <Music2 size={20} />
-          Iniciar sesión con Spotify
+          Iniciar sesión con Spotify Testeo
         </a>
       </div>
     </div>
