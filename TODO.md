@@ -17,6 +17,8 @@ hecho
 -  mejorar botones de modal canciones eliminadas restaurar?
 - Pedir que ya traiga todas las musicas
 - Publicar en linode
+- Cuando estabas en la pagina, pero, perdiste la autenticacion, y aprietas cualquier boton, haces cualquier accion, no te redirige a login
+- Hacer que cuando seleccionas una opcion de crear por idioma o genero, puedas elegir cuales playlists quieres crear y cuales no
 
 ________________________________________________________________________________________________________________________
 
@@ -24,9 +26,6 @@ ________________________________________________________________________________
   REFACTOR
 - Hacer que filterType y filterValue sean un solo Enum
 
-- Cuando estabas en la pagina, pero, perdiste la autenticacion, y aprietas cualquier boton, haces cualquier accion, no te redirige a login
-- Hacer que cuando seleccionas una opcion de crear por idioma o genero, puedas elegir cuales playlists quieres crear y cuales no
-- No funciona paginacion
 - Que pasa si mientras creas una playlist, o entras en el modal de canciones eliminadas, sales del modal con el boton X?
 - Si ya nadie usa las musicas, las tiene que eliminar de la base de datos
 - Fallo al traer el idioma y genero de Fly de marshmello, es decir, no paso las dos veces
