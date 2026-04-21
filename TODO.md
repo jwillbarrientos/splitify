@@ -16,10 +16,10 @@ hecho
   hacer un buen mensaje de commit
 -  mejorar botones de modal canciones eliminadas restaurar?
 - Pedir que ya traiga todas las musicas
+- Publicar en linode
 
 ________________________________________________________________________________________________________________________
 
-- Publicar en linode
 
   REFACTOR
 - Hacer que filterType y filterValue sean un solo Enum
