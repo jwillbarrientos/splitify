@@ -1,11 +1,16 @@
 import { useState, useMemo } from 'react'
-import { X, RotateCcw, AlertTriangle, ChevronDown, ChevronRight, Check, CheckCheck, ListMusic } from 'lucide-react'
+import { X, RotateCcw, Trash2, AlertTriangle, ChevronDown, ChevronRight, Check, CheckCheck, ListMusic } from 'lucide-react'
 
 // Estructura esperada de `groups`: array de
 //   { playlistId, playlistName, songs: [{ spotifyId, name, artist, ... }] }
 //
+// mode: 'restore' (default) o 'remove'.
+//   - restore: canciones que el usuario quitó de Spotify pero siguen en el origen;
+//     pregunta si restaurarlas. Por defecto TODAS marcadas.
+//   - remove: canciones que siguen en el hijo pero su origen desapareció;
+//     pregunta si quitarlas del hijo también. Por defecto NINGUNA marcada.
+//
 // onConfirm(selectionByPlaylist) donde selectionByPlaylist es Map playlistId -> Array<spotifyId>
-//   - Si una playlist no aparece en el Map, no se restaura nada de ella.
 // onCancel: cierra el modal sin hacer nada.
 
 function Checkbox({ checked, indeterminate, onClick, size = 16 }) {
@@ -26,8 +31,10 @@ function Checkbox({ checked, indeterminate, onClick, size = 16 }) {
   )
 }
 
-function RefreshConfirmModal({ visible, groups, onConfirm, onCancel }) {
-  // selected: Map playlistId -> Set de spotifyIds seleccionados para restaurar
+function RefreshConfirmModal({ visible, groups, mode = 'restore', onConfirm, onCancel }) {
+  const isRemoveMode = mode === 'remove'
+
+  // selected: Map playlistId -> Set de spotifyIds seleccionados
   const [selected, setSelected] = useState({})
   const [expanded, setExpanded] = useState({})
   // syncedKey captura qué conjunto de grupos ya inicializamos. Cuando cambia (abrir/cambiar modal),
@@ -43,16 +50,17 @@ function RefreshConfirmModal({ visible, groups, onConfirm, onCancel }) {
     [selected]
   )
 
-  // Key derivada del contenido de los grupos. Cuando cambia, reseteamos el state.
-  const currentKey = visible ? groups.map(g => g.playlistId).join('-') : null
+  // Key derivada del contenido de los grupos + mode. Cuando cambia, reseteamos el state.
+  const currentKey = visible ? `${mode}:${groups.map(g => g.playlistId).join('-')}` : null
   if (currentKey !== syncedKey) {
     setSyncedKey(currentKey)
     if (currentKey) {
-      // Por defecto: TODAS seleccionadas (más común querer restaurar todo y desmarcar excepciones)
+      // restore: TODAS marcadas por defecto (restaurar todo es lo más común).
+      // remove: NINGUNA marcada por defecto (conservar todo, quitar solo lo que el usuario marque).
       const initial = {}
       const initialExpanded = {}
       groups.forEach(g => {
-        initial[g.playlistId] = new Set(g.songs.map(s => s.spotifyId))
+        initial[g.playlistId] = isRemoveMode ? new Set() : new Set(g.songs.map(s => s.spotifyId))
         initialExpanded[g.playlistId] = groups.length === 1
       })
       setSelected(initial)
@@ -111,8 +119,9 @@ function RefreshConfirmModal({ visible, groups, onConfirm, onCancel }) {
     onConfirm(payload)
   }
 
-  const handleRestoreNone = () => {
-    // Equivalente a "Solo nuevas" — no restaurar ninguna
+  const handleSelectNone = () => {
+    // restore: "No restaurar ninguna" (equivalente a "Solo nuevas")
+    // remove: "No quitar ninguna" (conservar todas)
     const payload = {}
     groups.forEach(g => { payload[g.playlistId] = [] })
     onConfirm(payload)
@@ -139,12 +148,22 @@ function RefreshConfirmModal({ visible, groups, onConfirm, onCancel }) {
             <AlertTriangle size={20} className="text-amber-400" />
           </div>
           <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <h2 className="text-lg font-bold text-white">Canciones eliminadas detectadas</h2>
+            <h2 className="text-lg font-bold text-white">
+              {isRemoveMode ? 'Canciones sin origen detectadas' : 'Canciones eliminadas detectadas'}
+            </h2>
             <p className="text-sm text-[#A1A1AA]">
-              {isBatch ? (
-                <>Detectamos <span className="font-semibold text-white">{totalSongs}</span> canciones eliminadas manualmente en <span className="font-semibold text-white">{groups.length}</span> playlists que siguen en las playlists origen. Elige cuáles quieres restaurar.</>
+              {isRemoveMode ? (
+                isBatch ? (
+                  <>Detectamos <span className="font-semibold text-white">{totalSongs}</span> canciones en <span className="font-semibold text-white">{groups.length}</span> playlists cuyo origen las quitó. Por defecto se conservan — marca las que quieras quitar del hijo también.</>
+                ) : (
+                  <>Detectamos <span className="font-semibold text-white">{totalSongs}</span> canciones en esta playlist cuyo origen las quitó. Por defecto se conservan — marca las que quieras quitar del hijo también.</>
+                )
               ) : (
-                <>Detectamos <span className="font-semibold text-white">{totalSongs}</span> canciones eliminadas manualmente que siguen en las playlists origen. Elige cuáles quieres restaurar.</>
+                isBatch ? (
+                  <>Detectamos <span className="font-semibold text-white">{totalSongs}</span> canciones eliminadas manualmente en <span className="font-semibold text-white">{groups.length}</span> playlists que siguen en las playlists origen. Elige cuáles quieres restaurar.</>
+                ) : (
+                  <>Detectamos <span className="font-semibold text-white">{totalSongs}</span> canciones eliminadas manualmente que siguen en las playlists origen. Elige cuáles quieres restaurar.</>
+                )
               )}
             </p>
           </div>
@@ -248,21 +267,38 @@ function RefreshConfirmModal({ visible, groups, onConfirm, onCancel }) {
           </button>
           <div className="flex items-center gap-2">
             <button
-              onClick={handleRestoreNone}
-              className="rounded-lg border border-red-900/50 bg-[#0A0A0A] px-4 py-2.5 text-sm font-medium text-red-400 transition hover:border-red-500/70 hover:bg-red-500/20 hover:text-red-300"
-            >
-              No restaurar ninguna
-            </button>
-            <button
-              onClick={handleConfirm}
-              disabled={totalSelected === 0}
-              className={`flex items-center gap-2 rounded-lg bg-gradient-to-r from-green-500 to-blue-500 px-5 py-2.5 text-sm font-semibold text-black transition ${
-                totalSelected > 0 ? 'cursor-pointer hover:opacity-90' : 'cursor-not-allowed opacity-40'
+              onClick={handleSelectNone}
+              className={`rounded-lg border px-4 py-2.5 text-sm font-medium transition ${
+                isRemoveMode
+                  ? 'border-green-900/50 bg-[#0A0A0A] text-green-400 hover:border-green-500/70 hover:bg-green-500/20 hover:text-green-300'
+                  : 'border-red-900/50 bg-[#0A0A0A] text-red-400 hover:border-red-500/70 hover:bg-red-500/20 hover:text-red-300'
               }`}
             >
-              <RotateCcw size={16} />
-              Restaurar seleccionadas ({totalSelected})
+              {isRemoveMode ? 'No quitar ninguna' : 'No restaurar ninguna'}
             </button>
+            {isRemoveMode ? (
+              <button
+                onClick={handleConfirm}
+                disabled={totalSelected === 0}
+                className={`flex items-center gap-2 rounded-lg bg-red-500 px-5 py-2.5 text-sm font-semibold text-white transition ${
+                  totalSelected > 0 ? 'cursor-pointer hover:bg-red-600' : 'cursor-not-allowed opacity-40'
+                }`}
+              >
+                <Trash2 size={16} />
+                Quitar seleccionadas del hijo ({totalSelected})
+              </button>
+            ) : (
+              <button
+                onClick={handleConfirm}
+                disabled={totalSelected === 0}
+                className={`flex items-center gap-2 rounded-lg bg-gradient-to-r from-green-500 to-blue-500 px-5 py-2.5 text-sm font-semibold text-black transition ${
+                  totalSelected > 0 ? 'cursor-pointer hover:opacity-90' : 'cursor-not-allowed opacity-40'
+                }`}
+              >
+                <RotateCcw size={16} />
+                Restaurar seleccionadas ({totalSelected})
+              </button>
+            )}
           </div>
         </div>
       </div>

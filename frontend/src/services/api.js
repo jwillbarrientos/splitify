@@ -63,6 +63,16 @@ export async function deleteSplitifyPlaylist(id) {
   if (!res.ok) throw new Error('Failed to delete playlist');
 }
 
+async function extractErrorMessage(res, fallback) {
+  try {
+    const body = await res.json();
+    if (body && body.message) return body.message;
+  } catch {
+    // body no es JSON, usar mensaje por defecto
+  }
+  return fallback;
+}
+
 export async function previewOrganizedPlaylists(playlistIds, options) {
   const res = await apiFetch(`${API_BASE}/playlists/create/combined/preview`, {
     method: 'POST',
@@ -74,7 +84,9 @@ export async function previewOrganizedPlaylists(playlistIds, options) {
       byReleaseDate: options.fecha,
     }),
   });
-  if (!res.ok) throw new Error('Failed to preview playlists');
+  if (!res.ok) {
+    throw new Error(await extractErrorMessage(res, 'Failed to preview playlists'));
+  }
   return res.json();
 }
 
@@ -84,7 +96,9 @@ export async function confirmOrganizedPlaylists(playlistIds, specs) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ playlistIds, playlists: specs }),
   });
-  if (!res.ok) throw new Error('Failed to create playlists');
+  if (!res.ok) {
+    throw new Error(await extractErrorMessage(res, 'Failed to create playlists'));
+  }
   return res.json();
 }
 
@@ -120,7 +134,9 @@ export async function updateSplitifyPlaylistImage(id, imageBase64) {
 export async function getAvailableFilters(playlistIds) {
   const qs = playlistIds.map(id => `playlistIds=${encodeURIComponent(id)}`).join('&');
   const res = await apiFetch(`${API_BASE}/playlists/available-filters?${qs}`);
-  if (!res.ok) throw new Error('Failed to fetch available filters');
+  if (!res.ok) {
+    throw new Error(await extractErrorMessage(res, 'Failed to fetch available filters'));
+  }
   return res.json();
 }
 
@@ -149,19 +165,22 @@ export async function previewRefresh(id) {
   return res.json();
 }
 
-// restoredSongIds: array de spotifyIds de canciones a restaurar. Vacío = no restaurar ninguna.
-export async function refreshSplitifyPlaylist(id, restoredSongIds = []) {
+// restoredSongIds: array de spotifyIds a re-agregar (canciones que el usuario quitó de Spotify
+//   pero que siguen en las playlists origen). Vacío = no restaurar ninguna.
+// removedSongIds: array de spotifyIds a quitar del hijo (canciones cuyo origen desapareció y el
+//   usuario eligió quitar). Vacío = conservar todas aunque hayan perdido su origen.
+export async function refreshSplitifyPlaylist(id, restoredSongIds = [], removedSongIds = []) {
   const res = await apiFetch(`${API_BASE}/playlists/splitify/${id}/refresh`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ restoredSongIds }),
+    body: JSON.stringify({ restoredSongIds, removedSongIds }),
   });
   if (res.status === 204) return null;
   if (!res.ok) throw new Error('Failed to refresh playlist');
   return res.json();
 }
 
-// items: array de {playlistId, restoredSongIds}
+// items: array de {playlistId, restoredSongIds, removedSongIds}
 export async function refreshSplitifyPlaylists(items) {
   const res = await apiFetch(`${API_BASE}/playlists/splitify/batch/refresh`, {
     method: 'PUT',

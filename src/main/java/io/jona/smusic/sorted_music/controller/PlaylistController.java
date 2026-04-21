@@ -119,7 +119,10 @@ public class PlaylistController {
             OAuth2AuthenticationToken authentication) {
         Set<String> restoredIds = (request != null && request.restoredSongIds() != null)
                 ? new HashSet<>(request.restoredSongIds()) : Set.of();
-        PlaylistDto result = spotifyService.refreshSplitifyPlaylist(authentication, id, restoredIds);
+        Set<String> removedIds = (request != null && request.removedSongIds() != null)
+                ? new HashSet<>(request.removedSongIds()) : Set.of();
+        PlaylistDto result = spotifyService.refreshSplitifyPlaylist(
+                authentication, id, restoredIds, removedIds);
         if (result == null) {
             return ResponseEntity.noContent().build();
         }
@@ -135,8 +138,10 @@ public class PlaylistController {
         for (BatchRefreshRequest.Item item : request.items()) {
             Set<String> restored = item.restoredSongIds() != null
                     ? new HashSet<>(item.restoredSongIds()) : Set.of();
+            Set<String> removed = item.removedSongIds() != null
+                    ? new HashSet<>(item.removedSongIds()) : Set.of();
             PlaylistDto result = spotifyService.refreshSplitifyPlaylist(
-                    authentication, item.playlistId(), restored);
+                    authentication, item.playlistId(), restored, removed);
             if (result != null) {
                 results.add(result);
             }

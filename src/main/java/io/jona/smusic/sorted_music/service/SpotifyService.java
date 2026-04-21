@@ -162,7 +162,8 @@ public class SpotifyService {
 
     // Vista previa de qué cambiaría al actualizar una playlist Splitify. No modifica nada.
     // Compara 3 fuentes de verdad: lo que hay en Spotify ahora, lo que tenemos en BD, y lo que
-    // las playlists origen producirían con el filtro original. Devuelve canciones nuevas y eliminadas.
+    // las playlists origen producirían con el filtro original. Devuelve 3 listas de canciones
+    // que requieren decisión del usuario: nuevas, quitadas por el usuario, y sin origen.
     public RefreshPreviewDto previewRefresh(OAuth2AuthenticationToken authentication, Long id) {
         String userId = authentication.getName();
         Playlist splitifyPlaylist = findSplitifyPlaylist(id, userId);
@@ -174,7 +175,7 @@ public class SpotifyService {
             spotifySongs = fetchSongsFromSpotify(restClient, splitifyPlaylist.getSpotifyId());
         } catch (Exception e) {
             // Si la playlist ya no existe en Spotify, indicar que hay cambios (se eliminará al refrescar)
-            return new RefreshPreviewDto(List.of(), List.of(), true);
+            return new RefreshPreviewDto(List.of(), List.of(), List.of(), true);
         }
 
         Set<String> spotifyIds = toSpotifyIdSet(spotifySongs);
@@ -193,6 +194,16 @@ public class SpotifyService {
                 .map(this::toSongDto)
                 .toList();
 
+        // Canciones que siguen en el hijo pero cuya fuente ya no las tiene (el usuario las quitó
+        // del origen, o vació/borró la playlist origen). Por defecto las conservamos; el frontend
+        // pregunta al usuario si quiere quitarlas del hijo también.
+        List<SongDto> lostSourceSongs = dbSongs.stream()
+                .filter(s -> !s.isExcluded() && !s.isManuallyAdded()
+                        && spotifyIds.contains(s.getSpotifyId())
+                        && !sourceIds.contains(s.getSpotifyId()))
+                .map(this::toSongDto)
+                .toList();
+
         // Canciones nuevas de las fuentes: están en las fuentes pero no en Spotify ni en BD
         List<SongDto> newFromSources = filteredSourceSongs.stream()
                 .filter(s -> !spotifyIds.contains(s.getSpotifyId())
@@ -203,9 +214,10 @@ public class SpotifyService {
         // Detectar si el usuario agregó canciones manualmente en Spotify (están en Spotify pero no en BD)
         boolean hasManualAdds = spotifySongs.stream()
                 .anyMatch(s -> !dbSongIds.contains(s.getSpotifyId()));
-        boolean hasChanges = !removedByUser.isEmpty() || !newFromSources.isEmpty() || hasManualAdds;
+        boolean hasChanges = !removedByUser.isEmpty() || !newFromSources.isEmpty()
+                || !lostSourceSongs.isEmpty() || hasManualAdds;
 
-        return new RefreshPreviewDto(newFromSources, removedByUser, hasChanges);
+        return new RefreshPreviewDto(newFromSources, removedByUser, lostSourceSongs, hasChanges);
     }
 
     // Actualización real de una playlist Splitify. Reconcilia 3 fuentes de verdad:
@@ -213,11 +225,15 @@ public class SpotifyService {
     //   - dbSongs: lo que teníamos guardado en BD del último sync
     //   - filteredSourceSongs: lo que las playlists origen producen ahora con el filtro original
     // restoredSongIds: spotifyIds específicos que el usuario eligió re-agregar (canciones que había
-    // quitado manualmente de Spotify). Set vacío = no restaurar ninguna.
+    //   quitado manualmente de Spotify). Set vacío = no restaurar ninguna.
+    // removedSongIds: spotifyIds de canciones cuyo origen desapareció y el usuario eligió quitar
+    //   del hijo. Set vacío = conservar todas aunque hayan perdido su origen.
     @Transactional
     public PlaylistDto refreshSplitifyPlaylist(OAuth2AuthenticationToken authentication,
-                                                Long id, Set<String> restoredSongIds) {
+                                                Long id, Set<String> restoredSongIds,
+                                                Set<String> removedSongIds) {
         Set<String> restored = restoredSongIds != null ? restoredSongIds : Set.of();
+        Set<String> removed = removedSongIds != null ? removedSongIds : Set.of();
         String userId = authentication.getName();
         Playlist splitifyPlaylist = findSplitifyPlaylist(id, userId);
         RestClient restClient = spotifyApi.createRestClient(authentication);
@@ -253,7 +269,7 @@ public class SpotifyService {
         // 3. Construir la lista final mezclando las 3 fuentes (ver buildFinalSongList para detalle)
         Map<String, Song> finalSongs = buildFinalSongList(
                 spotifySongs, filteredSourceSongs, dbById, dbSongIds,
-                sourceIds, spotifyIds, previouslyExcluded, restored);
+                sourceIds, spotifyIds, previouslyExcluded, restored, removed);
 
         // 4. Calcular qué canciones se deben marcar como excluidas para no re-agregarlas en el futuro
         Set<String> excludedForSave = computeExcludedIds(
@@ -442,6 +458,7 @@ public class SpotifyService {
                                                                 boolean byLanguage, boolean byGenre,
                                                                 boolean byReleaseDate) {
         List<Song> allSongs = collectDeduplicatedSongs(playlistIds);
+        ensureClassified(allSongs);
         List<PlaylistCreateSpec> result = new ArrayList<>();
 
         if (byLanguage) {
@@ -472,6 +489,7 @@ public class SpotifyService {
         RestClient restClient = spotifyApi.createRestClient(authentication);
         List<Playlist> sourcePlaylists = findPlaylistsByIds(playlistIds);
         List<Song> allSongs = collectDeduplicatedSongs(playlistIds);
+        ensureClassified(allSongs);
 
         Map<String, List<Song>> byLang = groupByLanguage(allSongs);
         Map<String, List<Song>> byGenre = groupByGenre(allSongs);
@@ -508,24 +526,25 @@ public class SpotifyService {
     // Se usa para poblar los dropdowns/filtros del modal de playlist personalizada.
     // TreeSet con Collator español para ordenar alfabéticamente respetando acentos (á=a, ñ después de n).
     public AvailableFiltersDto getAvailableFilters(List<Long> playlistIds) {
+        // Colectamos primero (deduplicando y filtrando excluidas) para poder gatear con
+        // ensureClassified antes de calcular los filtros disponibles. Si alguna canción tenía
+        // hueco de género/idioma, acá se termina de clasificar — garantiza que los dropdowns
+        // del modal custom reflejen TODO lo que hay, no solo lo clasificado por sync.
+        List<Song> allSongs = collectDeduplicatedSongs(playlistIds);
+        ensureClassified(allSongs);
+
         Collator es = Collator.getInstance(new Locale("es"));
         es.setStrength(Collator.PRIMARY);
         Set<String> languages = new TreeSet<>(es);
         Set<String> genres = new TreeSet<>(es);
         Set<String> artists = new TreeSet<>(es);
 
-        Set<String> seenSongIds = new HashSet<>();
-        for (Long playlistId : playlistIds) {
-            for (Song song : songRepository.findByPlaylistId(playlistId)) {
-                if (song.isExcluded()) continue;
-                if (!seenSongIds.add(song.getSpotifyId())) continue;
-
-                addCommaSeparatedValues(song.getLanguage(), languages);
-                if (song.getGenre() != null && !song.getGenre().isBlank()) {
-                    genres.add(song.getGenre().trim());
-                }
-                addCommaSeparatedValues(song.getArtist(), artists);
+        for (Song song : allSongs) {
+            addCommaSeparatedValues(song.getLanguage(), languages);
+            if (song.getGenre() != null && !song.getGenre().isBlank()) {
+                genres.add(song.getGenre().trim());
             }
+            addCommaSeparatedValues(song.getArtist(), artists);
         }
 
         return new AvailableFiltersDto(
@@ -552,9 +571,14 @@ public class SpotifyService {
         Set<String> genreSet = toFilterSet(genres);
         Set<String> artistSet = toFilterSet(artists);
 
+        // Clasificar huecos antes de filtrar, si no una canción con genre=null quedaría fuera
+        // silenciosamente cuando el usuario filtra por género.
+        List<Song> candidates = collectDeduplicatedSongs(playlistIds);
+        ensureClassified(candidates);
+
         // Encadenar filtros: cada .filter() es AND entre categorías, pero dentro de cada
         // matchesX() es OR (ej: matchesLanguages pasa si la canción tiene CUALQUIER idioma seleccionado)
-        List<Song> filtered = collectDeduplicatedSongs(playlistIds).stream()
+        List<Song> filtered = candidates.stream()
                 .filter(s -> matchesLanguages(s, languageSet))
                 .filter(s -> matchesGenres(s, genreSet))
                 .filter(s -> matchesArtists(s, artistSet))
@@ -582,6 +606,33 @@ public class SpotifyService {
             playlistRepository.save(p);
         });
         return created;
+    }
+
+    // Gate para acciones de usuario (preview/crear/filtros): si hay canciones sin clasificar,
+    // lanzar otro pase corto de ChatGPT (2 intentos vs los 5 de la sync, para mantener el
+    // tiempo de respuesta razonable). Si quedan huecos después de eso, fallar con 422
+    // para que el frontend muestre ErrorModal — evita crear playlists con canciones fantasma.
+    private static final int ENSURE_CLASSIFIED_ATTEMPTS = 2;
+
+    private void ensureClassified(List<Song> songs) {
+        if (songs == null || songs.isEmpty()) return;
+        List<Song> gaps = songs.stream()
+                .filter(s -> s.getGenre() == null || s.getLanguage() == null)
+                .collect(Collectors.toCollection(ArrayList::new));
+        if (gaps.isEmpty()) return;
+
+        log.info("Gate de clasificación: {} canciones con huecos, intentando completar...",
+                gaps.size());
+        classificationService.classifySongs(gaps, ENSURE_CLASSIFIED_ATTEMPTS);
+
+        long remaining = gaps.stream()
+                .filter(s -> s.getGenre() == null || s.getLanguage() == null)
+                .count();
+        if (remaining > 0) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                    "Hay " + remaining + " canciones sin clasificar. " +
+                    "ChatGPT no respondió a tiempo, intentá de nuevo en unos segundos.");
+        }
     }
 
     // ──── Sync helpers ──────────────────────────────────────────────
@@ -1005,8 +1056,9 @@ public class SpotifyService {
     //
     // La lógica en 3 pasadas:
     //   Pasada 1 - Canciones que están en Spotify ahora:
-    //     - Si ya no está en las fuentes Y no fue agregada manualmente → sacarla (la fuente la quitó)
-    //     - Si sigue vigente → mantenerla, reutilizando género/idioma ya clasificados de la BD
+    //     - Si el usuario eligió quitarlas (removedIds) → descartarla
+    //     - Si sigue vigente (o el usuario la quiere conservar aunque perdió origen) → mantenerla,
+    //       reutilizando género/idioma ya clasificados de la BD
     //   Pasada 2 - Canciones nuevas de las fuentes:
     //     - Si no estaba en Spotify NI en BD → es nueva, agregarla
     //   Pasada 3 - Restaurar seleccionadas por el usuario:
@@ -1015,19 +1067,18 @@ public class SpotifyService {
     private Map<String, Song> buildFinalSongList(
             List<Song> spotifySongs, List<Song> filteredSourceSongs,
             Map<String, Song> dbById, Set<String> dbSongIds, Set<String> sourceIds,
-            Set<String> spotifyIds, Set<String> previouslyExcluded, Set<String> restoredIds) {
+            Set<String> spotifyIds, Set<String> previouslyExcluded, Set<String> restoredIds,
+            Set<String> removedIds) {
 
         Map<String, Song> finalSongs = new LinkedHashMap<>();
 
         // Pasada 1: procesar canciones que están actualmente en Spotify
         for (Song s : spotifySongs) {
-            boolean stillInSources = sourceIds.contains(s.getSpotifyId());
             Song dbVersion = dbById.get(s.getSpotifyId());
 
-            // Si la canción ya no está en las fuentes, la conocíamos en BD, y no fue agregada
-            // manualmente por el usuario → descartarla (la playlist origen la quitó)
-            if (!stillInSources && dbVersion != null
-                    && !dbVersion.isManuallyAdded() && !dbVersion.isExcluded()) {
+            // Si el usuario eligió explícitamente quitar esta canción (porque su origen
+            // desapareció y la confirmó en el modal) → descartarla.
+            if (removedIds.contains(s.getSpotifyId())) {
                 continue;
             }
 

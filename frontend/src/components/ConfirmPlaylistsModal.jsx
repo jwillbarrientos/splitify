@@ -24,7 +24,7 @@ function Checkbox({ checked, onClick }) {
   )
 }
 
-function ConfirmPlaylistsModal({ visible, onClose, onBack, selectedIds, options, onPlaylistsCreated, onEmpty }) {
+function ConfirmPlaylistsModal({ visible, onClose, onBack, selectedIds, options, onPlaylistsCreated, onEmpty, onError }) {
   const [loading, setLoading] = useState(false)
   const [creating, setCreating] = useState(false)
   const [specs, setSpecs] = useState([])
@@ -43,9 +43,10 @@ function ConfirmPlaylistsModal({ visible, onClose, onBack, selectedIds, options,
       .catch(err => {
         console.error('Error loading preview:', err)
         setSpecs([])
+        onError?.(err.message || 'No se pudo calcular el preview de playlists.')
       })
       .finally(() => setLoading(false))
-  }, [visible, selectedIds, options, onEmpty])
+  }, [visible, selectedIds, options, onEmpty, onError])
 
   if (!visible) return null
 
@@ -86,6 +87,7 @@ function ConfirmPlaylistsModal({ visible, onClose, onBack, selectedIds, options,
       onPlaylistsCreated(created)
     } catch (err) {
       console.error('Error creating playlists:', err)
+      onError?.(err.message || 'No se pudieron crear las playlists.')
     } finally {
       setCreating(false)
     }

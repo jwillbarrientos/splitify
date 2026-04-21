@@ -173,12 +173,39 @@ function MainPage() {
     setShowCustomModal(false)
   }
 
+  // Detecta el mensaje 422 que devuelve el backend cuando hay canciones sin clasificar,
+  // para mostrar un ErrorModal más específico en vez del genérico de "no hay resultados".
+  const classificationPendingState = (message) => ({
+    title: 'Clasificación pendiente',
+    message,
+    tip: 'ChatGPT tardó más de lo esperado. Esperá unos segundos y volvé a intentar.',
+  })
+
+  const isClassificationPendingError = (message) => /sin clasificar/i.test(message || '')
+
   const handleCustomError = (message) => {
     setShowCustomModal(false)
+    if (isClassificationPendingError(message)) {
+      setErrorModal(classificationPendingState(message))
+      return
+    }
     setErrorModal({
       title: 'Error al crear playlist',
       message: message || 'No se pudieron encontrar canciones que coincidan con los criterios seleccionados para crear la playlist solicitada.',
       tip: 'Intenta ampliar tus criterios de búsqueda o seleccionar diferentes opciones de idioma, género o artista.',
+    })
+  }
+
+  const handleConfirmError = (message) => {
+    setConfirmOptions(null)
+    if (isClassificationPendingError(message)) {
+      setErrorModal(classificationPendingState(message))
+      return
+    }
+    setErrorModal({
+      title: 'Error al crear playlist',
+      message: message || 'Ocurrió un error al preparar las playlists.',
+      tip: 'Intentá de nuevo en un momento.',
     })
   }
 
@@ -207,7 +234,14 @@ function MainPage() {
     }
   }
 
-  // refreshConfirm: { mode: 'single'|'batch', groups: [{playlistId, playlistName, songs}], pendingIds: [...] }
+  // refreshConfirm:
+  //   { mode: 'single'|'batch',
+  //     phase: 'restore'|'remove',                    ← qué modal se está mostrando ahora
+  //     restoreGroups: [{playlistId, playlistName, songs}],  ← canciones a preguntar si restaurar
+  //     removeGroups:  [{playlistId, playlistName, songs}],  ← canciones a preguntar si quitar del hijo
+  //     pendingIds: [ids],
+  //     collectedRestore: { pid: [spotifyIds] } | null       ← selección guardada tras fase restore
+  //   }
   const [refreshConfirm, setRefreshConfirm] = useState(null)
 
   const applyRefreshResult = (id, updated) => {
@@ -223,22 +257,31 @@ function MainPage() {
     addRefreshing(id)
     try {
       const preview = await previewRefresh(id)
-      if (preview.removedByUser && preview.removedByUser.length > 0) {
-        const playlist = splitifyList.find(p => p.id === id)
-        setRefreshConfirm({
-          mode: 'single',
-          groups: [{
-            playlistId: id,
-            playlistName: playlist?.name || 'Playlist',
-            songs: preview.removedByUser,
-          }],
-          pendingIds: [id],
-        })
-      } else {
-        const updated = await refreshSplitifyPlaylist(id, [])
+      const restoreSongs = preview.removedByUser || []
+      const removeSongs = preview.lostSourceSongs || []
+
+      if (restoreSongs.length === 0 && removeSongs.length === 0) {
+        const updated = await refreshSplitifyPlaylist(id, [], [])
         applyRefreshResult(id, updated)
         removeRefreshing(id)
+        return
       }
+
+      const playlist = splitifyList.find(p => p.id === id)
+      const playlistName = playlist?.name || 'Playlist'
+      const restoreGroups = restoreSongs.length > 0
+        ? [{ playlistId: id, playlistName, songs: restoreSongs }] : []
+      const removeGroups = removeSongs.length > 0
+        ? [{ playlistId: id, playlistName, songs: removeSongs }] : []
+
+      setRefreshConfirm({
+        mode: 'single',
+        phase: restoreGroups.length > 0 ? 'restore' : 'remove',
+        restoreGroups,
+        removeGroups,
+        pendingIds: [id],
+        collectedRestore: null,
+      })
     } catch (err) {
       console.error('Error refreshing splitify playlist:', err)
       removeRefreshing(id)
@@ -247,24 +290,40 @@ function MainPage() {
 
   const handleConfirmRefresh = async (selectionByPlaylist) => {
     if (!refreshConfirm) return
-    const { mode, pendingIds } = refreshConfirm
+    const { mode, phase, removeGroups, pendingIds, collectedRestore } = refreshConfirm
+
+    // Si todavía queda la fase de remove por delante, guardamos la selección de restore y avanzamos.
+    if (phase === 'restore' && removeGroups.length > 0) {
+      setRefreshConfirm({
+        ...refreshConfirm,
+        phase: 'remove',
+        collectedRestore: selectionByPlaylist,
+      })
+      return
+    }
+
+    // Commit: combinar selecciones de ambas fases y llamar al backend.
     setRefreshConfirm(null)
+    const restoreMap = phase === 'restore' ? selectionByPlaylist : (collectedRestore || {})
+    const removeMap = phase === 'remove' ? selectionByPlaylist : {}
 
     try {
       if (mode === 'single') {
         const id = pendingIds[0]
-        const restored = selectionByPlaylist[id] || []
         try {
-          const updated = await refreshSplitifyPlaylist(id, restored)
+          const restored = restoreMap[id] || []
+          const removed = removeMap[id] || []
+          const updated = await refreshSplitifyPlaylist(id, restored, removed)
           applyRefreshResult(id, updated)
         } finally {
           removeRefreshing(id)
         }
       } else {
-        // Batch: las playlists sin conflictos mandan [] (no restaurar nada).
+        // Batch: cada playlist aporta sus selecciones (vacías si no había conflictos).
         const items = pendingIds.map(pid => ({
           playlistId: pid,
-          restoredSongIds: selectionByPlaylist[pid] || [],
+          restoredSongIds: restoreMap[pid] || [],
+          removedSongIds: removeMap[pid] || [],
         }))
         try {
           const updated = await refreshSplitifyPlaylists(items)
@@ -328,22 +387,36 @@ function MainPage() {
     })
     try {
       const previews = await previewBatchRefresh(ids)
-      // Construir grupos solo para playlists con conflictos (canciones eliminadas)
-      const groups = previews
+      // Construir grupos separados por tipo de conflicto.
+      const restoreGroups = previews
         .filter(bp => bp.preview.removedByUser && bp.preview.removedByUser.length > 0)
         .map(bp => ({
           playlistId: bp.playlistId,
           playlistName: bp.playlistName,
           songs: bp.preview.removedByUser,
         }))
+      const removeGroups = previews
+        .filter(bp => bp.preview.lostSourceSongs && bp.preview.lostSourceSongs.length > 0)
+        .map(bp => ({
+          playlistId: bp.playlistId,
+          playlistName: bp.playlistName,
+          songs: bp.preview.lostSourceSongs,
+        }))
 
-      if (groups.length > 0) {
-        // Hay conflictos en al menos una playlist → mostrar modal.
-        // pendingIds incluye TODAS las del batch (las sin conflictos igual se refrescan sin restaurar)
-        setRefreshConfirm({ mode: 'batch', groups, pendingIds: ids })
+      if (restoreGroups.length > 0 || removeGroups.length > 0) {
+        // Hay conflictos → mostrar modal(es). pendingIds incluye TODAS las del batch
+        // (las sin conflictos igual se refrescan con selecciones vacías).
+        setRefreshConfirm({
+          mode: 'batch',
+          phase: restoreGroups.length > 0 ? 'restore' : 'remove',
+          restoreGroups,
+          removeGroups,
+          pendingIds: ids,
+          collectedRestore: null,
+        })
       } else {
         // Sin conflictos → refresh directo del batch
-        const items = ids.map(pid => ({ playlistId: pid, restoredSongIds: [] }))
+        const items = ids.map(pid => ({ playlistId: pid, restoredSongIds: [], removedSongIds: [] }))
         const updated = await refreshSplitifyPlaylists(items)
         const updatedIds = new Set(updated.map(p => p.id))
         setSplitifyList(prev => {
@@ -392,6 +465,7 @@ function MainPage() {
         options={confirmOptions || { idioma: false, genero: false, fecha: false }}
         onPlaylistsCreated={handlePlaylistsCreated}
         onEmpty={handleConfirmEmpty}
+        onError={handleConfirmError}
       />
       <CustomOrganizeModal
         visible={showCustomModal}
@@ -411,7 +485,10 @@ function MainPage() {
 
       <RefreshConfirmModal
         visible={refreshConfirm !== null}
-        groups={refreshConfirm?.groups || []}
+        groups={refreshConfirm?.phase === 'remove'
+          ? (refreshConfirm?.removeGroups || [])
+          : (refreshConfirm?.restoreGroups || [])}
+        mode={refreshConfirm?.phase || 'restore'}
         onConfirm={handleConfirmRefresh}
         onCancel={handleCancelRefreshConfirm}
       />

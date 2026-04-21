@@ -22,7 +22,7 @@ function FilterList({ icon: Icon, title, items, selected, onToggle }) {
         <span className="text-sm font-bold text-white">{title}</span>
         <span className="text-xs text-[#A1A1AA]">({selected.size}/{items.length})</span>
       </div>
-      <div className="flex h-40 flex-col overflow-y-auto overscroll-contain rounded-lg border border-[#27272A] bg-[#0A0A0A]">
+      <div className="flex h-32 flex-col overflow-y-auto overscroll-contain rounded-lg border border-[#27272A] bg-[#0A0A0A]">
         {items.length === 0 ? (
           <div className="flex h-full items-center justify-center px-4 text-center text-xs text-[#71717A]">
             Sin opciones disponibles
@@ -70,9 +70,10 @@ function CustomOrganizeModal({ visible, onClose, onBack, selectedIds, onPlaylist
       .catch(err => {
         console.error('Error loading available filters:', err)
         setFilters({ languages: [], genres: [], artists: [] })
+        onError?.(err.message || 'No se pudieron cargar los filtros disponibles.')
       })
       .finally(() => setLoading(false))
-  }, [visible, selectedIds])
+  }, [visible, selectedIds, onError])
 
   if (!visible) return null
 
@@ -110,7 +111,9 @@ function CustomOrganizeModal({ visible, onClose, onBack, selectedIds, onPlaylist
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0A0A0A]/80 p-4">
-      <div className="relative flex w-[600px] max-w-full flex-col gap-5 rounded-2xl border border-[#27272A] bg-[#1A1A1A] p-6 shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
+      <div
+        className="relative flex w-[600px] max-w-full flex-col gap-5 rounded-2xl border border-[#27272A] bg-[#1A1A1A] p-6 shadow-[0_8px_32px_rgba(0,0,0,0.4)]"
+      >
         {/* Close */}
         <button
           onClick={onClose}
@@ -150,7 +153,7 @@ function CustomOrganizeModal({ visible, onClose, onBack, selectedIds, onPlaylist
             <span className="ml-2 text-sm text-[#A1A1AA]">Cargando filtros disponibles...</span>
           </div>
         ) : (
-          <div className="flex gap-4">
+          <div className="flex flex-col gap-4">
             <FilterList
               icon={Languages}
               title="Idiomas"
