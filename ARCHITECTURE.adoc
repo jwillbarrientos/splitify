@@ -2,8 +2,8 @@
 
 == Splitify
 
-*Versión:* 2.3
-*Fecha:* 2026-04-20
+*Versión:* 2.4
+*Fecha:* 2026-04-21
 *Autor:* Barri
 
 '''
@@ -686,6 +686,397 @@ git push (master)
 
 `deploy.sh` sigue existiendo y sirve para casos de emergencia en los que GitHub Actions esté caído o se necesite deployar una versión local no commiteada (ej: probar un hotfix sin pasar por el repo). El workflow de CI usa exactamente los mismos pasos, así que ambos caminos producen el mismo resultado.
 
+=== 11.12 Runbook de Provisioning (First-Time Setup)
+
+Esta sección documenta *todos* los pasos y comandos necesarios para levantar el stack de producción desde cero en una máquina nueva. Está pensado como referencia para replicar el setup, auditar la configuración actual, o recuperar tras una pérdida total del server.
+
+==== 11.12.1 Pre-requisitos en la máquina del desarrollador
+
+Una llave SSH para autenticarse contra el server. Si no existe:
+
+[source,bash]
+----
+ssh-keygen -t ed25519 -C "tu@email.com"
+# Aceptar la ruta por defecto (~/.ssh/id_ed25519). Passphrase opcional.
+cat ~/.ssh/id_ed25519.pub   # copiar esta línea para pegarla más tarde
+----
+
+==== 11.12.2 Crear el Cloud Firewall en Linode
+
+Desde `https://cloud.linode.com/firewalls/create`:
+
+* Label: `splitify-fw`
+* Default Inbound Policy: *Drop*
+* Default Outbound Policy: *Accept*
+* Services assigned (shortcut que genera las reglas): *SSH*, *HTTP*, *HTTPS*
+
+Equivalente a tres reglas inbound Accept TCP en puertos 22, 80 y 443 desde `0.0.0.0/0, ::/0`.
+
+==== 11.12.3 Crear la instancia Linode
+
+Desde `https://cloud.linode.com/linodes/create`:
+
+* Distribution: *Ubuntu 24.04 LTS*
+* Region: la más cercana geográficamente
+* Plan: *Nanode 1GB* (Shared CPU)
+* Label: `splitify-prod`
+* Root Password: fuerte (mín 11 chars, mayúscula+minúscula+número+símbolo), guardada en un password manager
+* SSH Keys: pegar la pública copiada en 11.12.1
+* Firewall: `splitify-fw`
+
+Tras ~1 min queda en estado *Running* con una IP pública asignada (anotarla: la llamamos `<IP>`).
+
+==== 11.12.4 Configurar DNS en Cloudflare
+
+En el panel del dominio en Cloudflare → *DNS → Records* → *Add record* dos veces:
+
+[cols="1,1,1,1"]
+|===
+|Type |Name |Content |Proxy
+
+|A |`@` |`<IP>` |*DNS only* (nube gris)
+|A |`www` |`<IP>` |*DNS only* (nube gris)
+|===
+
+*Crítico:* el proxy de Cloudflare (nube naranja) debe estar *apagado*. Con el proxy activo, Cloudflare intercepta el puerto 80 y Caddy no puede completar el HTTP-01 challenge de Let's Encrypt. Verificar la propagación (puede tardar 1-5 min):
+
+[source,bash]
+----
+nslookup splitifyapp.app 1.1.1.1
+# Debe devolver <IP>, no una IP de Cloudflare (104.x, 172.x)
+----
+
+==== 11.12.5 Primer acceso SSH y actualización del sistema
+
+[source,bash]
+----
+ssh root@<IP>
+# Primera vez pregunta por host key → "yes"
+# Pide password de root (el configurado al crear la Linode)
+----
+
+Ya dentro del server como `root@localhost`:
+
+[source,bash]
+----
+apt update && apt upgrade -y
+# Si pregunta qué servicios reiniciar: Enter con la opción por defecto.
+# Si pregunta sobre archivos de config: "keep the local version".
+----
+
+==== 11.12.6 Crear el usuario de servicio `splitify`
+
+[source,bash]
+----
+adduser --disabled-password --gecos "" splitify
+usermod -aG sudo splitify
+----
+
+* `--disabled-password` crea el usuario sin password (solo entrará por SSH key).
+* `-aG sudo` lo agrega al grupo `sudo` (permiso de elevar privilegios).
+
+Copiar la llave SSH pública del desarrollador al nuevo usuario:
+
+[source,bash]
+----
+mkdir -p /home/splitify/.ssh
+echo "ssh-ed25519 AAAA... tu@email.com" > /home/splitify/.ssh/authorized_keys
+chown -R splitify:splitify /home/splitify
+chmod 700 /home/splitify/.ssh
+chmod 600 /home/splitify/.ssh/authorized_keys
+----
+
+*Nota:* reemplazar `ssh-ed25519 AAAA... tu@email.com` por la línea completa copiada en 11.12.1.
+
+Habilitar sudo sin password (seguro porque SSH solo acepta llaves):
+
+[source,bash]
+----
+echo "splitify ALL=(ALL) NOPASSWD:ALL" | tee /etc/sudoers.d/splitify
+chmod 0440 /etc/sudoers.d/splitify
+----
+
+Desde otra terminal local, verificar el acceso:
+
+[source,bash]
+----
+ssh splitify@<IP>
+# Debe entrar sin pedir password
+sudo whoami
+# Debe imprimir "root" sin pedir password
+----
+
+==== 11.12.7 Deshabilitar login de root y password auth por SSH
+
+Ubuntu 24.04 tiene overrides en `/etc/ssh/sshd_config.d/*.conf` que suelen setear `PasswordAuthentication yes` y pisan el archivo principal. Hay que ajustar ambos:
+
+[source,bash]
+----
+sudo sed -i 's/^#*PermitRootLogin .*/PermitRootLogin no/' /etc/ssh/sshd_config
+sudo sed -i 's/^#*PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config
+sudo sed -i 's/^#*PubkeyAuthentication .*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
+sudo sed -i 's/^PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config.d/*.conf 2>/dev/null || true
+----
+
+Validar la config y aplicar:
+
+[source,bash]
+----
+sudo sshd -t                     # si sale error, NO reiniciar
+sudo systemctl restart ssh
+----
+
+*Dejar la sesión actual abierta como seguro*, y desde otra terminal verificar:
+
+[source,bash]
+----
+ssh splitify@<IP>   # debe entrar con llave
+ssh root@<IP>       # debe decir "Permission denied (publickey)" sin pedir password
+----
+
+==== 11.12.8 Instalar Java 25 (Eclipse Temurin)
+
+Ubuntu 24.04 no trae Java 25 en sus repos; se usa el repo oficial de Adoptium:
+
+[source,bash]
+----
+sudo apt install -y wget apt-transport-https gpg
+wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public | sudo gpg --dearmor -o /usr/share/keyrings/adoptium.gpg
+echo "deb [signed-by=/usr/share/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/adoptium.list
+sudo apt update
+sudo apt install -y temurin-25-jdk
+java -version   # debe mostrar 25.x
+----
+
+==== 11.12.9 Instalar Caddy
+
+[source,bash]
+----
+sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+sudo apt update
+sudo apt install -y caddy
+systemctl status caddy   # debe decir "active (running)"
+----
+
+==== 11.12.10 Crear el directorio de la app y el archivo de entorno
+
+[source,bash]
+----
+sudo mkdir -p /opt/splitify
+sudo chown splitify:splitify /opt/splitify
+sudo chmod 755 /opt/splitify
+----
+
+Crear `/etc/splitify.env` con los secretos:
+
+[source,bash]
+----
+sudo nano /etc/splitify.env
+----
+
+Contenido (reemplazar placeholders):
+
+[source]
+----
+SPOTIFY_CLIENT_ID=...
+SPOTIFY_CLIENT_SECRET=...
+OPENAI_API_KEY=...
+SPRING_PROFILES_ACTIVE=prod
+----
+
+Bloquear lectura a otros usuarios:
+
+[source,bash]
+----
+sudo chown root:splitify /etc/splitify.env
+sudo chmod 640 /etc/splitify.env
+----
+
+==== 11.12.11 Crear la unit de systemd
+
+[source,bash]
+----
+sudo nano /etc/systemd/system/splitify.service
+----
+
+Contenido:
+
+[source,ini]
+----
+[Unit]
+Description=Splitify Spring Boot application
+After=network.target
+
+[Service]
+Type=simple
+User=splitify
+Group=splitify
+WorkingDirectory=/opt/splitify
+EnvironmentFile=/etc/splitify.env
+ExecStart=/usr/bin/java -Xmx512m -jar /opt/splitify/splitify.jar
+SuccessExitStatus=143
+Restart=on-failure
+RestartSec=10
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/opt/splitify
+
+[Install]
+WantedBy=multi-user.target
+----
+
+Registrar (sin arrancar aún — todavía no hay JAR):
+
+[source,bash]
+----
+sudo systemctl daemon-reload
+sudo systemctl enable splitify
+----
+
+==== 11.12.12 Escribir el Caddyfile
+
+[source,bash]
+----
+sudo cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.backup
+sudo nano /etc/caddy/Caddyfile
+----
+
+Contenido:
+
+[source]
+----
+{
+    email tu@email.com
+}
+
+splitifyapp.app, www.splitifyapp.app {
+    reverse_proxy localhost:8080
+    encode gzip
+}
+----
+
+Validar y recargar:
+
+[source,bash]
+----
+sudo caddy validate --config /etc/caddy/Caddyfile
+sudo systemctl reload caddy
+----
+
+En el browser, `https://splitifyapp.app` debe mostrar 502 Bad Gateway con el candado verde (HTTPS OK, solo falta la app). Caddy generó el certificado en el primer request vía ACME HTTP-01.
+
+==== 11.12.13 Configuración del lado del repo
+
+Registrar el redirect URI de producción en el Spotify Developer Dashboard (`https://developer.spotify.com/dashboard` → tu app → Settings → Redirect URIs):
+
+[source]
+----
+https://splitifyapp.app/login/oauth2/code/spotify
+----
+
+Crear en el repo `src/main/resources/application-prod.properties`:
+
+[source,properties]
+----
+spring.datasource.url=jdbc:sqlite:/opt/splitify/splitify.db?journal_mode=WAL&synchronous=NORMAL
+spring.security.oauth2.client.registration.spotify.redirect-uri=https://splitifyapp.app/login/oauth2/code/spotify
+server.forward-headers-strategy=native
+----
+
+El último es crítico: sin él, Spring genera URLs de redirect OAuth con `http://` porque ve que la request entrante es HTTP (Caddy termina el TLS antes del proxy), y Spotify rechaza el redirect como inválido.
+
+==== 11.12.14 Primer deploy
+
+Desde la raíz del repo en la máquina del desarrollador:
+
+[source,bash]
+----
+./deploy.sh
+----
+
+El script compila el JAR, lo sube por SCP a `/opt/splitify/splitify.jar` y reinicia el servicio. Tras ~3-5 min, `https://splitifyapp.app` muestra la app funcionando.
+
+Verificar desde el server:
+
+[source,bash]
+----
+sudo systemctl status splitify              # Active: active (running)
+sudo journalctl -u splitify -n 50 --no-pager   # logs recientes
+----
+
+==== 11.12.15 Activar CI/CD (opcional pero recomendado)
+
+Generar una llave SSH *dedicada* para CI en la máquina del desarrollador:
+
+[source,bash]
+----
+ssh-keygen -t ed25519 -f ~/.ssh/github_actions_splitify -C "github-actions@splitify" -N ""
+----
+
+`-N ""` la deja sin passphrase (el runner no puede responder prompts). Agregar la pública al server:
+
+[source,bash]
+----
+cat ~/.ssh/github_actions_splitify.pub   # copiar la línea
+# En la sesión SSH al server como splitify:
+echo "ssh-ed25519 AAAA... github-actions@splitify" >> ~/.ssh/authorized_keys
+----
+
+En GitHub → repo → *Settings → Secrets and variables → Actions → New repository secret*, crear tres:
+
+|===
+|Nombre |Contenido
+
+|`SSH_PRIVATE_KEY` |Contenido completo de `~/.ssh/github_actions_splitify` (desde `-----BEGIN...` hasta `-----END...-----` inclusive)
+|`SSH_HOST` |La `<IP>` del server
+|`SSH_USER` |`splitify`
+|===
+
+A partir de acá, cada push a `master` dispara el workflow `.github/workflows/deploy.yml` y re-deploya automáticamente.
+
+==== 11.12.16 Resumen visual del orden
+
+[source]
+----
+[Dev local]                    [Linode Cloud Panel]            [Cloudflare]
+generate SSH key ─────────┐
+                          │    create Cloud Firewall
+                          └──▶ create Linode (pega key)
+                                         │
+                                         ▼
+                                      <IP>
+                                         │
+                                         └──────────▶ DNS A records @ y www
+                                                      (proxy off)
+[Dev local]                                                │
+ssh root@<IP> ◀───────────────────────────────────────────┘
+  ├─ apt update/upgrade
+  ├─ adduser splitify + sudo + SSH key + NOPASSWD
+  └─ disable root login + PasswordAuthentication
+
+[Dev como splitify]
+sudo apt install temurin-25-jdk
+sudo apt install caddy
+sudo mkdir /opt/splitify
+sudo nano /etc/splitify.env
+sudo nano /etc/systemd/system/splitify.service
+sudo nano /etc/caddy/Caddyfile
+sudo systemctl daemon-reload && enable splitify && reload caddy
+
+[Repo]
+add Redirect URI en Spotify Dashboard
+add src/main/resources/application-prod.properties
+add deploy.sh
+./deploy.sh   → primer deploy
+add .github/workflows/deploy.yml
+add secrets en GitHub → push → CI/CD activo
+----
+
 '''
 
 == 12. Historial de Cambios
@@ -707,4 +1098,5 @@ git push (master)
 |2026-04-16 |2.1 |Nuevos campos en Playlist: `customLanguages`, `customGenres`, `customArtists` (TEXT, JSON arrays) — persisten los filtros usados al crear playlists personalizadas (RF7), permitiendo re-aplicarlos en refresh (antes se perdían y se traían todas las canciones de las fuentes). Refactor de refresh: `restoreRemoved` (boolean) → `restoredSongIds` (lista de spotifyIds); ahora los endpoints de refresh toman body JSON. Nuevos endpoints: `POST /create/combined/preview` + `POST /create/combined/confirm` (flujo 2-pasos con nombres editables para RF6.1), `POST /batch/refresh/preview` (preview agrupado para batch), `PUT /splitify/{id}/rename`, `PUT /splitify/{id}/image` (RF2.3). Nuevos DTOs: `PlaylistCreateSpec`, `CreatePlaylistsFromSpecsRequest`, `RefreshRequest`, `BatchRefreshRequest`, `BatchRefreshPreviewDto`. Métodos nuevos en `SpotifyApiClient`: `fetchPlaylist`, `renamePlaylist`, `uploadPlaylistImage`. `syncPlaylists` ahora también sincroniza metadata (nombre, imagen) de playlists Splitify sin tocar canciones; `refreshSplitifyPlaylist` también las sincroniza. Frontend: nuevos componentes `ConfirmPlaylistsModal` (nombres editables), `RefreshConfirmModal` (checkboxes por canción + agrupación por playlist en batch). `SplitifyCard` ahora permite renombrar inline con ícono de lápiz siempre visible y cambiar foto mediante overlay al pasar el cursor (imagen redimensionada a 640px JPEG en el cliente). Nuevo scope OAuth: `ugc-image-upload`. Scroll propagation en modales arreglado con `overscroll-contain`.
 |2026-04-20 |2.2 |Primer despliegue productivo en Linode (`splitifyapp.app`). Sección 11 (Despliegue) reescrita completa con topología real: Cloudflare DNS (proxy off) → Linode Cloud Firewall (solo 22/80/443) → Caddy (HTTPS via Let's Encrypt) → Spring Boot en `localhost:8080` como servicio systemd → SQLite WAL en `/opt/splitify/`. Nuevas subsecciones: 11.1 topología con diagrama, 11.2 infraestructura (Nanode 1GB, Ubuntu 24.04), 11.3 hardening (usuario no-root, SSH solo por llave, systemd `ProtectSystem`/`NoNewPrivileges`), 11.4 perfiles con `application-prod.properties`, 11.5 env vars (`SPRING_PROFILES_ACTIVE=prod`; se elimina `DATABASE_URL` porque ya no se usa Postgres), 11.6 archivos clave en el server, 11.7 Caddyfile y flujo ACME, 11.8 runbook de deploy con `deploy.sh`, 11.9 troubleshooting, 11.10 rollback. Stack tecnológico actualizado: BD de prod pasa de PostgreSQL a SQLite con WAL mode (suficiente para el perfil de uso). Nuevas filas: Caddy v2 (reverse proxy + HTTPS automático) y systemd (gestor de servicios). Estructura del proyecto: agregado `deploy.sh` en la raíz y `application-prod.properties` en resources. Nuevo archivo `application-prod.properties` con: URL SQLite absoluta en `/opt/splitify/splitify.db` con `journal_mode=WAL&synchronous=NORMAL`, redirect URI `https://splitifyapp.app/login/oauth2/code/spotify`, `server.forward-headers-strategy=native` (crítico para que OAuth funcione detrás de Caddy).
 |2026-04-20 |2.3 |CI/CD agregado. Nueva subsección 11.11 que describe el pipeline de GitHub Actions (`.github/workflows/deploy.yml`): en cada push a `master` compila el JAR en un runner `ubuntu-latest` (JDK 25 Temurin + Node 20), lo sube por SCP al server y reinicia el servicio systemd. Requiere tres secretos en el repo (`SSH_PRIVATE_KEY`, `SSH_HOST`, `SSH_USER`) y una llave SSH dedicada para CI (independiente de la personal). Concurrencia limitada a una corrida (`concurrency: deploy-prod`) con `cancel-in-progress: false` para evitar carreras. `deploy.sh` se conserva para deploys manuales de emergencia. Estructura del proyecto: agregado `.github/workflows/deploy.yml`.
+|2026-04-21 |2.4 |Nueva subsección 11.12 "Runbook de Provisioning (First-Time Setup)" con todos los comandos necesarios para levantar el stack desde cero en un server nuevo, en orden cronológico. Cubre 16 sub-pasos: pre-requisitos del desarrollador (SSH key local), creación de Cloud Firewall en Linode, creación de la instancia Ubuntu 24.04, configuración de DNS en Cloudflare (proxy off), primer login y update del sistema, creación del usuario de servicio `splitify` con sudo NOPASSWD, deshabilitación de root login y password auth (manejando overrides en `/etc/ssh/sshd_config.d/`), instalación de Java 25 Temurin desde repo Adoptium, instalación de Caddy desde repo oficial, creación de `/opt/splitify` y `/etc/splitify.env` con permisos `640`, redacción del `splitify.service` de systemd con hardening, redacción del `Caddyfile`, registro del Redirect URI de prod en Spotify Dashboard, creación de `application-prod.properties`, primer deploy con `deploy.sh`, y activación opcional de CI/CD con llave SSH dedicada. Incluye comandos exactos con explicación de cada uno, y un diagrama visual del orden entre Dev local / Linode Cloud Panel / Cloudflare / server.
 |===
