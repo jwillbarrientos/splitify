@@ -6,7 +6,9 @@
       "Bash(taskkill:*)",
       "WebFetch(domain:developer.spotify.com)",
       "WebFetch(domain:community.spotify.com)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(./gradlew clean *)",
+      "Bash(./gradlew compileJava --quiet)"
     ]
   }
 }

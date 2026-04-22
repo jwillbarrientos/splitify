@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Music, Sparkles, RefreshCw, FolderOpen, Trash2, CheckCheck } from 'lucide-react'
-import { getPlaylists, syncPlaylists, deletePlaylists, getSplitifyPlaylists, deleteSplitifyPlaylist, deleteSplitifyPlaylists, previewRefresh, refreshSplitifyPlaylist, refreshSplitifyPlaylists, previewBatchRefresh, renameSplitifyPlaylist, updateSplitifyPlaylistImage } from '../services/api'
+import { getPlaylists, syncPlaylists, getSplitifyPlaylists, deleteSplitifyPlaylist, deleteSplitifyPlaylists, previewRefresh, refreshSplitifyPlaylist, refreshSplitifyPlaylists, previewBatchRefresh, renameSplitifyPlaylist, updateSplitifyPlaylistImage } from '../services/api'
 import SyncOverlay from '../components/SyncOverlay'
 import PlaylistCard from '../components/PlaylistCard'
 import SplitifyCard from '../components/SplitifyCard'
@@ -84,16 +84,6 @@ function MainPage() {
       console.error('Error syncing playlists:', err)
     } finally {
       setSyncing(false)
-    }
-  }
-
-  const handleDelete = async () => {
-    try {
-      await deletePlaylists()
-      setPlaylists([])
-      setSelectedIds(new Set())
-    } catch (err) {
-      console.error('Error deleting playlists:', err)
     }
   }
 
@@ -508,13 +498,6 @@ function MainPage() {
             <div className="flex items-center gap-3">
               {playlists.length > 0 && (
                 <>
-                  <button
-                    onClick={handleDelete}
-                    className="flex items-center gap-2 rounded-lg border border-red-900/50 bg-[#0A0A0A] px-4 py-2.5 text-sm font-medium text-red-400 transition hover:bg-red-500/20 hover:border-red-500/70 hover:text-red-300"
-                  >
-                    <Trash2 size={16} />
-                    Borrar datos
-                  </button>
                   <button
                     onClick={handleSync}
                     className="flex items-center gap-2 rounded-lg border border-green-900/50 bg-[#0A0A0A] px-4 py-2.5 text-sm font-medium text-green-400 transition hover:bg-green-500/20 hover:border-green-500/70 hover:text-green-300"

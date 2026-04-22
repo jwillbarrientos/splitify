@@ -43,12 +43,6 @@ public class PlaylistController {
         return spotifyService.getUserPlaylists(authentication.getName());
     }
 
-    @DeleteMapping
-    public ResponseEntity<Void> deleteAll(OAuth2AuthenticationToken authentication) {
-        spotifyService.deleteUserPlaylists(authentication.getName());
-        return ResponseEntity.noContent().build();
-    }
-
     @GetMapping("/{id}")
     public ResponseEntity<PlaylistDto> getPlaylist(@PathVariable Long id) {
         return playlistRepository.findById(id)

@@ -3,7 +3,7 @@ import { X, Sparkles, ArrowLeft, Loader2, Pencil, Music, Calendar, Languages, Ch
 import { previewOrganizedPlaylists, confirmOrganizedPlaylists } from '../services/api'
 
 function iconForFilter(filterType) {
-  if (filterType === 'language') return Languages
+  if (filterType === 'language' || filterType === 'otherLanguages') return Languages
   if (filterType === 'genre') return Music
   return Calendar
 }

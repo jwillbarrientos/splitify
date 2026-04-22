@@ -29,6 +29,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -48,6 +49,13 @@ public class SpotifyService {
     private final SplitifyPlaylistSourceRepository sourceRepository;
     private final ClassificationService classificationService;
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
+    // Umbral mínimo de canciones para crear una playlist dedicada por idioma.
+    // Idiomas con menos canciones se agrupan en "Splitify Other Languages Songs" (ver RF4).
+    // 5 es el punto en el que una playlist deja de sentirse testimonial para el usuario.
+    private static final int MIN_SONGS_PER_LANGUAGE = 5;
+    private static final String OTHER_LANGUAGES_FILTER_TYPE = "otherLanguages";
+    private static final String OTHER_LANGUAGES_DEFAULT_NAME = "Splitify Other Languages Songs";
 
     // ──── Public API ────────────────────────────────────────────────
 
@@ -136,16 +144,6 @@ public class SpotifyService {
                 log.debug("Sincronizada metadata de playlist Splitify '{}'", sp.getName());
             }
         }
-    }
-
-    // Elimina todas las playlists no-Splitify del usuario de la BD (usado al cerrar sesión/limpiar datos).
-    @Transactional
-    public void deleteUserPlaylists(String userId) {
-        List<Playlist> playlists = playlistRepository.findByUserIdAndSplitifyOrderByIdAsc(userId, false);
-        for (Playlist p : playlists) {
-            songRepository.deleteByPlaylistId(p.getId());
-        }
-        playlistRepository.deleteAll(playlists);
     }
 
     public List<PlaylistDto> getUserPlaylists(String userId) {
@@ -462,8 +460,23 @@ public class SpotifyService {
         List<PlaylistCreateSpec> result = new ArrayList<>();
 
         if (byLanguage) {
-            for (String lang : groupByLanguage(allSongs).keySet()) {
-                result.add(new PlaylistCreateSpec("language", lang, "Splitify " + lang + " Songs"));
+            Map<String, List<Song>> byLang = groupByLanguage(allSongs);
+            List<String> smallLanguages = new ArrayList<>();
+            for (Map.Entry<String, List<Song>> entry : byLang.entrySet()) {
+                if (entry.getValue().size() >= MIN_SONGS_PER_LANGUAGE) {
+                    result.add(new PlaylistCreateSpec("language", entry.getKey(),
+                            "Splitify " + entry.getKey() + " Songs"));
+                } else {
+                    smallLanguages.add(entry.getKey());
+                }
+            }
+            if (!smallLanguages.isEmpty()) {
+                // filterValue: lista de idiomas (CSV) que quedaron agrupados; se persiste al crear
+                // para que el refresh (applyFilter) sepa qué idiomas pertenecen a este bucket.
+                result.add(new PlaylistCreateSpec(
+                        OTHER_LANGUAGES_FILTER_TYPE,
+                        String.join(",", smallLanguages),
+                        OTHER_LANGUAGES_DEFAULT_NAME));
             }
         }
         if (byGenre) {
@@ -494,6 +507,7 @@ public class SpotifyService {
         Map<String, List<Song>> byLang = groupByLanguage(allSongs);
         Map<String, List<Song>> byGenre = groupByGenre(allSongs);
         List<PlaylistDto> created = new ArrayList<>();
+        List<String> failed = new ArrayList<>();
 
         for (PlaylistCreateSpec spec : specs) {
             String name = spec.name() != null && !spec.name().isBlank() ? spec.name().trim() :
@@ -501,6 +515,18 @@ public class SpotifyService {
             List<Song> songs;
             if ("language".equals(spec.filterType())) {
                 songs = byLang.getOrDefault(spec.filterValue(), List.of());
+            } else if (OTHER_LANGUAGES_FILTER_TYPE.equals(spec.filterType())) {
+                // Bucket: une todas las canciones de los idiomas listados en filterValue (CSV),
+                // deduplicando (una canción multilingüe puede aparecer en varios idiomas chicos).
+                Set<String> bucketLangs = parseOtherLanguages(spec.filterValue());
+                Set<String> seen = new HashSet<>();
+                List<Song> combined = new ArrayList<>();
+                for (String lang : bucketLangs) {
+                    for (Song s : byLang.getOrDefault(lang, List.of())) {
+                        if (seen.add(s.getSpotifyId())) combined.add(s);
+                    }
+                }
+                songs = combined;
             } else if ("genre".equals(spec.filterType())) {
                 songs = byGenre.getOrDefault(spec.filterValue(), List.of());
             } else if ("releaseDate".equals(spec.filterType())) {
@@ -510,16 +536,48 @@ public class SpotifyService {
             }
             if (songs.isEmpty()) continue;
             List<Song> sorted = sortByReleaseDate(new ArrayList<>(songs));
-            PlaylistDto dto = createSpotifyPlaylist(restClient, userId, name, sorted,
-                    sourcePlaylists, spec.filterType(), spec.filterValue());
-            if (dto != null) created.add(dto);
+            // Catch per-playlist: una falla (ej: 429 persistente tras reintentos en
+            // SpotifyApiClient, 5xx, o error inesperado de creación) no debe abortar el
+            // lote completo. Logueamos y seguimos con las demás; el frontend recibe las
+            // que sí se crearon.
+            try {
+                PlaylistDto dto = createSpotifyPlaylist(restClient, userId, name, sorted,
+                        sourcePlaylists, spec.filterType(), spec.filterValue());
+                if (dto != null) created.add(dto);
+            } catch (Exception e) {
+                log.warn("No se pudo crear la playlist '{}': {}. Continuando con el resto.",
+                        name, e.getMessage());
+                failed.add(name);
+            }
+        }
+
+        if (created.isEmpty() && !failed.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                    "No se pudo crear ninguna playlist. Intentá de nuevo en unos segundos " +
+                    "(Spotify puede estar rate-limiting). Fallaron: " + String.join(", ", failed));
+        }
+        if (!failed.isEmpty()) {
+            log.info("Creación parcial: {} playlists creadas, {} fallaron: {}",
+                    created.size(), failed.size(), failed);
         }
         return created;
     }
 
     private String defaultNameForSpec(PlaylistCreateSpec spec) {
         if ("releaseDate".equals(spec.filterType())) return "Splitify Songs By Release Date";
+        if (OTHER_LANGUAGES_FILTER_TYPE.equals(spec.filterType())) return OTHER_LANGUAGES_DEFAULT_NAME;
         return "Splitify " + spec.filterValue() + " Songs";
+    }
+
+    // Deserializa el filterValue del bucket "otherLanguages" (CSV de idiomas) a Set para matchear.
+    private Set<String> parseOtherLanguages(String filterValue) {
+        if (filterValue == null || filterValue.isBlank()) return Set.of();
+        Set<String> result = new LinkedHashSet<>();
+        for (String lang : filterValue.split(",")) {
+            String trimmed = lang.trim();
+            if (!trimmed.isEmpty()) result.add(trimmed);
+        }
+        return result;
     }
 
     // Devuelve todos los idiomas, géneros y artistas disponibles en las playlists seleccionadas.
@@ -617,7 +675,7 @@ public class SpotifyService {
     private void ensureClassified(List<Song> songs) {
         if (songs == null || songs.isEmpty()) return;
         List<Song> gaps = songs.stream()
-                .filter(s -> s.getGenre() == null || s.getLanguage() == null)
+                .filter(SpotifyService::isUnclassified)
                 .collect(Collectors.toCollection(ArrayList::new));
         if (gaps.isEmpty()) return;
 
@@ -626,13 +684,21 @@ public class SpotifyService {
         classificationService.classifySongs(gaps, ENSURE_CLASSIFIED_ATTEMPTS);
 
         long remaining = gaps.stream()
-                .filter(s -> s.getGenre() == null || s.getLanguage() == null)
+                .filter(SpotifyService::isUnclassified)
                 .count();
         if (remaining > 0) {
             throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
                     "Hay " + remaining + " canciones sin clasificar. " +
                     "ChatGPT no respondió a tiempo, intentá de nuevo en unos segundos.");
         }
+    }
+
+    // Una canción se considera sin clasificar si cualquiera de sus campos está null o en blanco.
+    // El check de blank cubre el caso donde una pasada anterior guardó "" (cadena vacía) — así
+    // el gate fuerza el reintento en vez de dejar pasar silenciosamente.
+    private static boolean isUnclassified(Song s) {
+        return s.getGenre() == null || s.getGenre().isBlank()
+                || s.getLanguage() == null || s.getLanguage().isBlank();
     }
 
     // ──── Sync helpers ──────────────────────────────────────────────
@@ -888,43 +954,58 @@ public class SpotifyService {
     //   3. Guarda la playlist en BD con splitify=true y el tipo de filtro usado
     //   4. Registra qué playlists origen la generaron (SplitifyPlaylistSource)
     //   5. Guarda las canciones en BD asociadas a esta nueva playlist
+    //
+    // Atomicidad: si falla cualquier paso DESPUÉS de createPlaylist (típicamente addTracks
+    // por 429), la playlist parcial/vacía que ya quedó en Spotify se limpia con unfollow
+    // para no dejar basura. De esta forma el resultado es todo-o-nada: playlist completa
+    // en Spotify + BD, o ninguna de las dos.
     private PlaylistDto createSpotifyPlaylist(RestClient restClient, String userId, String name,
                                                List<Song> songs, List<Playlist> sourcePlaylists,
                                                String filterType, String filterValue) {
         if (songs.isEmpty()) return null;
 
         SpotifyDto.CreatePlaylistResponse created = spotifyApi.createPlaylist(restClient, name);
-        List<String> trackIds = songs.stream().map(Song::getSpotifyId).toList();
-        spotifyApi.addTracks(restClient, created.id(), trackIds);
+        try {
+            List<String> trackIds = songs.stream().map(Song::getSpotifyId).toList();
+            spotifyApi.addTracks(restClient, created.id(), trackIds);
 
-        // Spotify genera automáticamente un mosaico con las carátulas de las canciones.
-        // La imagen puede no estar lista al instante; si no la tenemos ahora, se llenará en el próximo sync/refresh.
-        String imageUrl = fetchPlaylistImageUrlSafely(restClient, created.id());
+            // Spotify genera automáticamente un mosaico con las carátulas de las canciones.
+            // La imagen puede no estar lista al instante; si no la tenemos ahora, se llenará en el próximo sync/refresh.
+            String imageUrl = fetchPlaylistImageUrlSafely(restClient, created.id());
 
-        Playlist playlist = playlistRepository.save(Playlist.builder()
-                .spotifyId(created.id())
-                .name(name)
-                .imageUrl(imageUrl)
-                .totalTracks(songs.size())
-                .userId(userId)
-                .splitify(true)
-                .filterType(filterType)
-                .filterValue(filterValue)
-                .build());
-
-        for (Playlist source : sourcePlaylists) {
-            sourceRepository.save(SplitifyPlaylistSource.builder()
-                    .splitifyPlaylist(playlist)
-                    .sourcePlaylist(source)
+            Playlist playlist = playlistRepository.save(Playlist.builder()
+                    .spotifyId(created.id())
+                    .name(name)
+                    .imageUrl(imageUrl)
+                    .totalTracks(songs.size())
+                    .userId(userId)
+                    .splitify(true)
+                    .filterType(filterType)
+                    .filterValue(filterValue)
                     .build());
-        }
 
-        for (Song s : songs) {
-            songRepository.save(cloneSongInto(s, playlist, false, false));
-        }
+            for (Playlist source : sourcePlaylists) {
+                sourceRepository.save(SplitifyPlaylistSource.builder()
+                        .splitifyPlaylist(playlist)
+                        .sourcePlaylist(source)
+                        .build());
+            }
 
-        log.info("Playlist creada en Spotify: '{}' con {} canciones", name, songs.size());
-        return toDto(playlist);
+            for (Song s : songs) {
+                songRepository.save(cloneSongInto(s, playlist, false, false));
+            }
+
+            log.info("Playlist creada en Spotify: '{}' con {} canciones", name, songs.size());
+            return toDto(playlist);
+        } catch (Exception e) {
+            // Compensating action: borrar la playlist parcial/vacía que creamos en Spotify.
+            // Sin esto, una falla en addTracks dejaría una shell vacía o con solo algunos
+            // batches de canciones (partial commit), visible en Spotify pero ausente en BD.
+            log.warn("Falla creando playlist '{}' (Spotify id={}): {}. Limpiando parcial...",
+                    name, created.id(), e.getMessage());
+            spotifyApi.unfollowPlaylist(restClient, created.id());
+            throw e;
+        }
     }
 
     // ──── Filtering ─────────────────────────────────────────────────
@@ -993,6 +1074,10 @@ public class SpotifyService {
         return songs.stream().filter(song -> {
             if ("language".equals(filterType)) {
                 return matchesLanguages(song, Set.of(filterValue));
+            } else if (OTHER_LANGUAGES_FILTER_TYPE.equals(filterType)) {
+                // El bucket conserva su conjunto original de idiomas: una canción cualificar si
+                // alguno de sus idiomas estaba entre los que se agruparon al crear la playlist.
+                return matchesLanguages(song, parseOtherLanguages(filterValue));
             } else if ("genre".equals(filterType)) {
                 return filterValue.equals(song.getGenre());
             }

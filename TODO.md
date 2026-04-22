@@ -23,6 +23,7 @@ hecho
 - La logica de 10 generos fijos, no funciona bien, en el boton de personalizado, no trae bien, trae generos que no estan en esos 10, trae 30
 - Logica de other songs(si las musicas en ese idioma no son mas 5, y no merecen tener su propia playlist) no funciona
 - Fallo al traer el idioma y genero de Fly de marshmello, es decir, no paso las dos veces
+- ChatGPT no identifica bien cuando una musica no tiene letra, y pone ingles(supongo por el titulo de la musica), y muchas veces se equivoca, por ejemplo, con musicas donde el autor es japones, pone que la letra es japones, pero la musica no tiene letra
 
 ________________________________________________________________________________________________________________________
 
@@ -30,7 +31,6 @@ ________________________________________________________________________________
   REFACTOR
 - Hacer que filterType y filterValue sean un solo Enum
 
-- ChatGPT no identifica bien cuando una musica no tiene letra, y pone ingles(supongo por el titulo de la musica), y muchas veces se equivoca, por ejemplo, con musicas donde el autor es japones, pone que la letra es japones, pero la musica no tiene letra
 - Si hay tiempo, agregar compabatibilidad para que se vea bien en celular
 
 - Si ya nadie usa las musicas, las tiene que eliminar de la base de datos
